@@ -2,6 +2,13 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const testing = std.testing;
 
+const Algods = @import("algods");
+const List = Algods.linked_list.SinglyCircularList;
+
+pub fn reportOOM() noreturn {
+    std.debug.panic("allocator is Out Of Memory", .{});
+}
+
 pub const Block = struct {
     //allocator
     allocator: std.mem.Allocator,
@@ -15,14 +22,16 @@ pub const Block = struct {
     //hash of the current block
     hash: []const u8,
 
-    fn init(allocator: std.mem.Allocator, data: []const u8, previous_hash: []const u8) Block {
-        return .{
+    pub fn genesisBlock(allocator: Allocator) Block {
+        var genesis_block = Block{
             .allocator = allocator,
             .timestamp = std.time.timestamp(),
-            .data = data,
-            .previous_hash = previous_hash,
+            .data = "Genesis Block",
+            .previous_hash = "",
             .hash = undefined,
         };
+        setHash(&genesis_block);
+        return genesis_block;
     }
 
     fn calculateHash(block: Block) []u8 {
@@ -40,16 +49,18 @@ pub const Block = struct {
         return block.allocator.dupe(u8, &hash) catch reportOOM();
     }
 
-    fn reportOOM() noreturn {
-        std.debug.panic("allocator is Out Of Memory", .{});
-    }
-
     fn setHash(block: *Block) void {
         block.hash = calculateHash(block.*);
     }
 
-    pub fn newBlock(allocator: Allocator, data: []const u8, previous_hash: []const u8) Block {
-        var new_block = init(allocator, data, previous_hash);
+    pub fn newBlock(block: Block, data: []const u8, previous_hash: []const u8) Block {
+        var new_block = Block{
+            .allocator = block.allocator,
+            .timestamp = std.time.timestamp(),
+            .data = data,
+            .previous_hash = previous_hash,
+            .hash = undefined,
+        };
         setHash(&new_block);
         return new_block;
     }
@@ -69,8 +80,57 @@ test "Block Test" {
     Block.setHash(&block);
     defer block.deinit();
 
-    const new_block = Block.newBlock(block.allocator, "test", "0");
+    var genesis_block = Block.genesisBlock(testing.allocator);
+    defer genesis_block.deinit();
+    const new_block = genesis_block.newBlock("test", "0");
     defer new_block.deinit();
     try testing.expectEqualSlices(u8, block.hash, new_block.hash);
 }
-pub fn main() !void {}
+
+pub const BlockChain = struct {
+    blocks: List(Block),
+
+    pub fn newChain(allocator: Allocator, genesis_block: Block) BlockChain {
+        var blocks = List(Block).init(allocator);
+        blocks.append(genesis_block) catch reportOOM();
+        return .{ .blocks = blocks };
+    }
+    pub fn addBlock(bc: *BlockChain, block_data: []const u8) void {
+        const previous_block = bc.blocks.last();
+        const new_block = previous_block.newBlock(block_data, previous_block.hash);
+        bc.blocks.append(new_block) catch reportOOM();
+    }
+
+    pub fn deinit(bc: BlockChain) void {
+        var iter = bc.blocks.iterator();
+        while (iter.next()) |block| {
+            block.deinit();
+        }
+        bc.blocks.deinit();
+    }
+};
+test "Blockchain Test" {
+    var allocator = testing.allocator;
+    var genesis_block = Block.genesisBlock(allocator);
+    var bc = BlockChain.newChain(allocator, genesis_block);
+    bc.addBlock("transfer $1 to kofi");
+    defer bc.deinit();
+}
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+
+    var genesis_block = Block.genesisBlock(allocator);
+    var bc = BlockChain.newChain(allocator, genesis_block);
+    defer bc.deinit();
+
+    bc.addBlock("transfer $1 to kofi");
+    bc.addBlock("transfer $7 to Kojo");
+
+    var iter = bc.blocks.iterator();
+    while (iter.next()) |block| {
+        std.log.info("previous hash is '{s}'", .{block.previous_hash});
+        std.log.info("data is '{s}'", .{block.data});
+        std.log.info("current hash is '{s}'\n", .{block.hash});
+    }
+}
