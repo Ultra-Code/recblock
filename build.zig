@@ -25,6 +25,20 @@ pub fn build(b: *std.build.Builder) void {
     exe.addPackage(pkgs.algods);
     exe.install();
 
+    //Add lmdb library for embeded key/value store
+    const builtin = @import("builtin");
+    switch (builtin.target.os.tag) {
+        .linux => {
+            exe.addIncludeDir("/usr/include");
+            exe.addLibPath("/usr/lib");
+            exe.linkSystemLibraryName("dl"); //to link with only -ldl and not -lc
+            exe.linkSystemLibrary("lmdb");
+        },
+        else => {
+            @compileError("Support and Contribution for Other Oses is wellcomed");
+        },
+    }
+
     const run_cmd = exe.run();
     run_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| {
