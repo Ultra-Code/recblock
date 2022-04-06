@@ -7,10 +7,11 @@ const Block = blockchain.Block;
 const BlockChain = blockchain.BlockChain;
 const Lmdb = blockchain.Lmdb;
 
-//TODO:maybe add an arena allocator to simplify memory management
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var allocator = gpa.allocator();
+    var arena_alloc = std.heap.ArenaAllocator.init(gpa.allocator());
+    const allocator = arena_alloc.allocator();
+    defer arena_alloc.deinit();
 
     const HOME = std.os.getenv("HOME").?;
     var dir_buf: [64]u8 = undefined;
@@ -28,13 +29,4 @@ pub fn main() !void {
 
     bc.addBlock("transfer 1BTC to Esteban 2638219".*);
     bc.addBlock("transfer 9BTC to Assan 238981183".*);
-
-    var iter = bc.blocks.iterator();
-    while (iter.next()) |block| {
-        print("\nprevious hash is '{}'\n", .{fmt.fmtSliceHexUpper(block.previous_hash[0..])});
-        print("data is '{s}'\n", .{block.data});
-        print("current hash of {s} is '{}'\n", .{ block.data, fmt.fmtSliceHexUpper(block.hash[0..]) });
-        print("nonce is {}\n", .{block.nonce});
-        print("POW: {}\n", .{block.validate()});
-    }
 }
