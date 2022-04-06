@@ -14,6 +14,7 @@ const std = @import("std");
 const panic = std.debug.panic;
 const assert = std.debug.assert;
 const debug = std.log.debug;
+const testing = std.testing;
 
 const serializer = @import("serializer.zig");
 const cast = serializer.cast;
@@ -48,7 +49,8 @@ db_env: *Env,
 txn: *Txn = undefined,
 db_handle: DbHandle = undefined,
 
-///initialize db environment (mmap file) specifing the db mode rw/ro
+///`db_path` is the directory in which the database files reside. This directory must already exist and be writable.
+///initialize db environment (mmap file) specifing the db mode `.rw/.ro`
 ///make sure to start a transaction .ie startTxn() fn before calling any db manipulation fn's
 ///a maximum of two named db's are allowed
 pub fn initdb(db_path: []const u8, txn_type: TxnType) Lmdb {
@@ -66,7 +68,7 @@ pub fn initdb(db_path: []const u8, txn_type: TxnType) Lmdb {
     const db_flags: c_uint = if (txn_type == .ro) db.MDB_RDONLY else 0;
     const permissions: c_uint = 0o0600; //octal permissions for created files in db_dir
     const open_state = db.mdb_env_open(db_env, db_path.ptr, db_flags, permissions);
-    checkState(open_state);
+    checkOpenState(open_state, db_env);
 
     debug("done opening db environment", .{});
     return .{
@@ -127,8 +129,13 @@ fn insert(lmdb: Lmdb, insertion_t: InsertionType, key_val: []const u8, data: any
         .update => 0,
     };
 
-    var serialized_data: [@sizeOf(@TypeOf(data))]u8 = undefined;
-    serialize(data, &serialized_data);
+    const DataType = @TypeOf(data);
+    const hash_size = 8; //size of std.hash.Fnv1a_64 is 64bit which is 8 byte
+    var serialized_data: [@sizeOf(DataType) + hash_size]u8 = undefined;
+
+    var fbr = std.io.fixedBufferStream(&serialized_data);
+    const writer = fbr.writer();
+    serialize(writer, DataType, data) catch unreachable;
 
     const put_state = db.mdb_put(
         lmdb.txn,
@@ -145,6 +152,7 @@ fn insert(lmdb: Lmdb, insertion_t: InsertionType, key_val: []const u8, data: any
     };
     debug("done {s} key/value in db", .{insertion_name});
 }
+
 pub fn put(lmdb: Lmdb, key_val: []const u8, data: anytype) PutError!void {
     assert(lmdb.txn != undefined);
     assert(lmdb.db_handle != undefined);
@@ -157,6 +165,46 @@ pub fn update(lmdb: Lmdb, key_val: []const u8, data: anytype) PutError!void {
     assert(lmdb.db_handle != undefined);
 
     try insert(lmdb, .update, key_val, data);
+}
+
+const BLOCK_DB = @import("blockchain.zig").BLOCK_DB;
+
+test "test db key:str / value:str" {
+    var dbh = initdb("/home/ultracode/repos/zig/recblock/db", .rw);
+    defer deinitdb(dbh);
+
+    const txn = dbh.startTxn(.rw, BLOCK_DB);
+    defer txn.commitTxns();
+    //TODO: read should be a separate transaction
+
+    try txn.put("key", "value");
+    try testing.expectEqualSlices(u8, "value", (try txn.get("key")));
+}
+
+test "test db update" {
+    var dbh = initdb("/home/ultracode/repos/zig/recblock/db", .rw);
+    defer deinitdb(db);
+
+    const txn = dbh.startTxn(.rw, BLOCK_DB);
+    defer commitTxns(dbh);
+
+    const Data = struct {
+        char: [21]u8,
+        int: u8,
+        ochar: [21]u8,
+    };
+    const data = Data{
+        .char = "is my data still here".*,
+        .int = 254,
+        .ochar = "is my data still here".*,
+    };
+
+    try txn.update("data_key", data);
+    const gotten_data = try txn.getAs(Data, "data_key");
+
+    try testing.expectEqualSlices(u8, data.char[0..], gotten_data.char[0..]);
+    try testing.expectEqualSlices(u8, data.ochar[0..], gotten_data.ochar[0..]);
+    try testing.expect(data.int == gotten_data.int);
 }
 
 ///commit all transaction on the current db handle
@@ -191,7 +239,7 @@ pub fn get(lmdb: Lmdb, key_val: []const u8) GetError![]u8 {
     return getBytes(data.mv_data, data.mv_size);
 }
 
-///get the data as Type
+///get the data as type `T`
 pub fn getAs(lmdb: Lmdb, comptime T: type, key_val: []const u8) GetError!T {
     assert(lmdb.txn != undefined);
     assert(lmdb.db_handle != undefined);
