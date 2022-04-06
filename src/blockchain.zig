@@ -9,6 +9,7 @@ const sha256 = crypto.hash.sha2.Sha256;
 const fmt = std.fmt;
 
 pub const Lmdb = @import("lmdb.zig").Lmdb;
+pub const BLOCK_DB = "blocks";
 
 const Algods = @import("algods");
 const List = Algods.linked_list.SinglyCircularList;
@@ -29,6 +30,10 @@ const TARGET_ZERO_BITS = 8;
 pub const Block = struct {
     //when the block is created
     timestamp: i64,
+    //difficulty bits is the block header storing the difficulty at which the block was mined
+    difficulty_bits: u7 = TARGET_ZERO_BITS, //u7 limit value from 0 to 127
+    //Thus miners must discover by brute force the "nonce" that, when included in the block, results in an acceptable hash.
+    nonce: usize = 0,
     //the actual valuable information contained in the block .eg Transactions which is usually a differenct data
     //structure
     data: [32]u8,
@@ -36,18 +41,13 @@ pub const Block = struct {
     previous_hash: [32]u8,
     //hash of the current block
     hash: [32]u8 = undefined,
-    //difficulty bits is the block header storing the difficulty at which the block was mined
-    difficulty_bits: u16 = TARGET_ZERO_BITS, //u7 limit value from 0 to 128
-    //Thus miners must discover by brute force the "nonce" that, when included in the block, results in an acceptable hash.
-    nonce: usize = 0,
 
     pub fn genesisBlock() Block {
         var genesis_block = Block{
             .timestamp = std.time.timestamp(),
             .data = "Genesis Block is the First Block".*,
-            .previous_hash = [_]u8{' '} ** 32,
+            .previous_hash = undefined,
         };
-        debug("size of previous_hash is {}", .{@sizeOf(@TypeOf(genesis_block.previous_hash))});
         var hash: [32]u8 = undefined;
         const nonce = genesis_block.POW(&hash);
         genesis_block.hash = hash;
@@ -58,9 +58,7 @@ pub const Block = struct {
     ///Validate POW
     //refactor and deduplicate
     pub fn validate(block: Block) bool {
-        // const target_bits = 256 - block.difficulty_bits;
-        //hast to be compaired with for valid hashes to prove work done
-        const target_hash = 1 << 256 - TARGET_ZERO_BITS;
+        const target_hash = getTargetHash(block.difficulty_bits);
 
         var time_buf: [16]u8 = undefined;
         var bits_buf: [3]u8 = undefined;
@@ -69,6 +67,7 @@ pub const Block = struct {
         const timestamp = fmt.bufPrintIntToSlice(&time_buf, block.timestamp, 16, .lower, .{});
         const difficulty_bits = fmt.bufPrintIntToSlice(&bits_buf, block.difficulty_bits, 16, .lower, .{});
         const nonce = fmt.bufPrintIntToSlice(&nonce_buf, block.nonce, 16, .lower, .{});
+        debug("time {} ")
 
         //timestamp ,previous_hash and hash form the BlockHeader
         var block_headers_buf: [128]u8 = undefined;
@@ -89,12 +88,18 @@ pub const Block = struct {
         return is_block_valid;
     }
 
+    fn getTargetHash(target_dificulty: u7) u256 {
+        //hast to be compaired with for valid hashes to prove work done
+        const @"256bit": u9 = 256; //256 bit is 32 byte which is the size of a sha256 hash
+        const @"1": u256 = 1; //a 32 byte integer with the value of 1
+        const target_hash = @"1" << @intCast(u8, @"256bit" - target_dificulty);
+        return target_hash;
+    }
+
     ///Proof of Work mining algorithm
     ///The usize returned is the nonce with which a valid block was mined
     pub fn POW(block: Block, hash: *[32]u8) usize {
-        // const target_bits = 256 - block.difficulty_bits;
-        //hast to be compaired with for valid hashes to prove work done
-        const target_hash = 1 << 256 - TARGET_ZERO_BITS;
+        const target_hash = getTargetHash(block.difficulty_bits);
 
         var nonce: usize = 0;
 
@@ -106,13 +111,11 @@ pub const Block = struct {
         const timestamp = fmt.bufPrintIntToSlice(&time_buf, block.timestamp, 16, .lower, .{});
         const difficulty_bits = fmt.bufPrintIntToSlice(&bits_buf, block.difficulty_bits, 16, .lower, .{});
 
-        print("\nMining the block containing {s}\n", .{block.data});
         // const size = comptime (block.previous_hash.len + block.data.len + time_buf.len + bits_buf.len + nonce_buf.len);
         var block_headers_buf: [128]u8 = undefined;
         while (nonce < std.math.maxInt(usize)) {
             const nonce_val = fmt.bufPrintIntToSlice(&nonce_buf, nonce, 16, .lower, .{});
 
-            //TODO :use a fixed buffer allocator
             //timestamp ,previous_hash and hash form the BlockHeader
             const block_headers = fmt.bufPrint(&block_headers_buf, "{[previous_hash]s}{[data]s}{[timestamp]s}{[difficulty_bits]s}{[nonce]s}", .{
                 .previous_hash = block.previous_hash,
@@ -127,7 +130,6 @@ pub const Block = struct {
             const hash_int = mem.bytesToValue(u256, hash[0..]);
 
             if (hash_int < target_hash) {
-                print("{}\n", .{fmt.fmtSliceHexUpper(hash[0..])});
                 return nonce;
             } else {
                 nonce += 1;
@@ -148,6 +150,7 @@ pub const Block = struct {
         new_block.nonce = nonce;
         return new_block;
     }
+    pub fn deinit(_: Block) void {}
 };
 
 test "Block Test" {
@@ -157,22 +160,22 @@ test "Block Test" {
     defer new_block.deinit();
     try testing.expectEqualSlices(u8, genesis_block.hash, new_block.previous_hash);
 }
-const BLOCK_DB = "blocks";
+
 //READ: https://en.bitcoin.it/wiki/Block_hashing_algorithm https://en.bitcoin.it/wiki/Proof_of_work https://en.bitcoin.it/wiki/Hashcash
 pub const BlockChain = struct {
     blocks: List(Block),
     db: Lmdb,
 
-    pub fn newChain(allocator: mem.Allocator, db: Lmdb, genesis_block: Block) BlockChain {
+    pub fn newChain(arena: mem.Allocator, db: Lmdb, genesis_block: Block) BlockChain {
         const txn = db.startTxn(.rw, BLOCK_DB);
         defer txn.commitTxns();
         if (txn.getAs(Block, "last")) |last_block| {
-            var continue_chain_from_last_block = List(Block).init(allocator);
+            var continue_chain_from_last_block = List(Block).init(arena);
             continue_chain_from_last_block.append(last_block) catch reportOOM();
             return .{ .blocks = continue_chain_from_last_block, .db = db };
         } else |err| switch (err) {
             error.KeyNotInDb => {
-                var blocks = List(Block).init(allocator);
+                var blocks = List(Block).init(arena);
                 blocks.append(genesis_block) catch reportOOM();
                 txn.put("last", genesis_block) catch unreachable;
                 return .{ .blocks = blocks, .db = db };
@@ -183,8 +186,12 @@ pub const BlockChain = struct {
 
     pub fn addBlock(bc: *BlockChain, block_data: [32]u8) void {
         const previous_block = bc.blocks.last();
-        debug("previous block is {}", .{previous_block});
+        print("\nMining the block containing - '{s}'\n", .{block_data[0..]});
         const new_block = Block.newBlock(block_data, previous_block.hash);
+        print("previous hash is '{}'\n", .{fmt.fmtSliceHexUpper(previous_block.hash[0..])});
+        print("'{s}' - has a valid hash of '{}'\n", .{ block_data[0..], fmt.fmtSliceHexUpper(new_block.hash[0..]) });
+        print("nonce is {}\n", .{new_block.nonce});
+        print("POW: {}\n\n", .{new_block.validate()});
         bc.blocks.append(new_block) catch reportOOM();
     }
 
