@@ -67,7 +67,6 @@ pub const Block = struct {
         const timestamp = fmt.bufPrintIntToSlice(&time_buf, block.timestamp, 16, .lower, .{});
         const difficulty_bits = fmt.bufPrintIntToSlice(&bits_buf, block.difficulty_bits, 16, .lower, .{});
         const nonce = fmt.bufPrintIntToSlice(&nonce_buf, block.nonce, 16, .lower, .{});
-        debug("time {} ")
 
         //timestamp ,previous_hash and hash form the BlockHeader
         var block_headers_buf: [128]u8 = undefined;

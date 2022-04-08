@@ -46,7 +46,7 @@ pub fn cast(comptime T: type, any_ptr: anytype) T {
     return @intToPtr(T, @ptrToInt(any_ptr));
 }
 
-test "simple serialization/deserialization with other data interleved " {
+test "serialization/deserialization data" {
     const Data = struct {
         char: [21]u8,
         int: u8,
@@ -75,6 +75,65 @@ test "simple serialization/deserialization with other data interleved " {
     try testing.expect(data.int == deserialized_data.int);
 }
 
+test "serialization/deserialization packed data" {
+    const Data = extern struct {
+        char: [21]u8,
+        int: u8,
+        ochar: [21]u8,
+    };
+
+    const data = Data{
+        .char = "is my data still here".*,
+        .int = 254,
+        .ochar = "is my data still here".*,
+    };
+
+    const file = try std.fs.cwd().createFile("serialized.data", .{ .read = true });
+    //defer statements are runned in the reverse order of execution
+    defer std.fs.cwd().deleteFile("serialized.data") catch unreachable;
+    defer file.close();
+
+    const writer = file.writer();
+    try serialize(writer, Data, data);
+    try file.seekTo(0);
+
+    const reader = file.reader();
+    const deserialized_data = try deserialize(reader, Data);
+
+    try testing.expectEqualSlices(u8, data.char[0..], deserialized_data.char[0..]);
+    try testing.expectEqualSlices(u8, data.ochar[0..], deserialized_data.ochar[0..]);
+    try testing.expect(data.int == deserialized_data.int);
+}
+
+test "readStruct/writeStruct with array field" {
+    const Data = extern struct { arr: [3]u8 };
+    const DataP = packed struct { arr: [3]u8 };
+    const data = Data{ .arr = [_]u8{'0'} ** 3 };
+
+    //packed struct are a little buggy now so use extern struct till stage2 is ready
+    //currently size of packed struct is promoted to the nearest size of an interger
+    //in stage2 this would probably change
+    try testing.expect(@sizeOf(Data) != @sizeOf(DataP));
+    try testing.expect(@sizeOf(Data) == 3);
+    try testing.expect(@sizeOf(DataP) == 4);
+
+    var buf: [@sizeOf(Data)]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buf);
+
+    try fbs.writer().writeStruct(data);
+    try fbs.seekTo(0);
+
+    const read_data = try fbs.reader().readStruct(Data);
+
+    //slicing read_data doesn't work with packed struct, it segfaults .NOTE: packed struct is a bit buggy
+    try testing.expectEqualSlices(u8, data.arr[0..], read_data.arr[0..]);
+
+    //but this works
+    inline for (data.arr) |item, index| {
+        try testing.expect(read_data.arr[index] == item);
+    }
+}
+
 // Credit to MasterQ32 for https://github.com/ziglibs/s2s
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Public API:
@@ -99,8 +158,11 @@ pub fn deserialize(
     comptime T: type,
 ) (@TypeOf(reader).Error || error{ DataMismatch, UnexpectedData, EndOfStream })!T {
     comptime validateTopLevelType(T);
-    if (comptime requiresAllocationForDeserialize(T))
+
+    if (comptime requiresAllocationForDeserialize(T)) {
         @compileError(@typeName(T) ++ " requires allocation to be deserialized. Use deserializeAlloc instead of deserialize!");
+    }
+
     return deserializeInternal(reader, T, null) catch |err| switch (err) {
         error.OutOfMemory => unreachable,
         else => |e| return e,
@@ -173,12 +235,19 @@ fn serializeRecursive(writer: anytype, comptime T: type, value: T) @TypeOf(write
                 try serializeRecursive(writer, arr.child, item);
             }
         },
-        .Struct => |str| {
-            // we can safely ignore the struct layout here as we will serialize the data by field order,
-            // instead of memory representation
+        .Struct => |structs| {
+            if (structs.layout == .Packed)
+                @compileLog("packed structs are buggy on stage1 so aren't supported at the moment.Use extern struct instead");
 
-            inline for (str.fields) |fld| {
-                try serializeRecursive(writer, fld.field_type, @field(value, fld.name));
+            if (structs.layout != .Auto) {
+                try writer.writeStruct(value);
+            } else {
+                // we can safely ignore the struct layout here as we will serialize the data by field order,
+                // instead of memory representation
+
+                inline for (structs.fields) |fld| {
+                    try serializeRecursive(writer, fld.field_type, @field(value, fld.name));
+                }
             }
         },
         .Optional => |opt| {
@@ -328,12 +397,18 @@ fn recursiveDeserialize(
                 try recursiveDeserialize(reader, arr.child, allocator, item);
             }
         },
-        .Struct => |str| {
-            // we can safely ignore the struct layout here as we will serialize the data by field order,
-            // instead of memory representation
+        .Struct => |structs| {
+            if (structs.layout == .Packed)
+                @compileLog("packed structs are buggy on stage1 so aren't supported at the moment.Use extern struct instead");
 
-            inline for (str.fields) |fld| {
-                try recursiveDeserialize(reader, fld.field_type, allocator, &@field(target.*, fld.name));
+            if (structs.layout != .Auto) {
+                target.* = try reader.readStruct(T);
+            } else {
+                // we can safely ignore the struct layout here as we will serialize the data by field order,
+
+                inline for (structs.fields) |fld| {
+                    try recursiveDeserialize(reader, fld.field_type, allocator, &@field(target.*, fld.name));
+                }
             }
         },
         .Optional => |opt| {
@@ -622,21 +697,26 @@ fn computeTypeHashInternal(hasher: *TypeHashFn, comptime T: type) void {
             }
         },
         .Array => |arr| {
+            if (arr.sentinel != null) @compileError("Sentinels are not supported yet!");
             hasher.update(&intToLittleEndianBytes(@as(u64, arr.len)));
             computeTypeHashInternal(hasher, arr.child);
-            if (arr.sentinel != null) @compileError("Sentinels are not supported yet!");
         },
-        .Struct => |str| {
-            // we can safely ignore the struct layout here as we will serialize the data by field order,
-            // instead of memory representation
+        .Struct => |structs| {
+            if (structs.layout != .Auto) {
+                hasher.update("packed struct");
+            } else {
 
-            // add some generic marker to the hash so emtpy structs get
-            // added as information
-            hasher.update("struct");
+                // we can safely ignore the struct layout here as we will serialize the data by field order,
+                // instead of memory representation
 
-            for (str.fields) |fld| {
-                if (fld.is_comptime) @compileError("comptime fields are not supported.");
-                computeTypeHashInternal(hasher, fld.field_type);
+                // add some generic marker to the hash so emtpy structs get
+                // added as information
+                hasher.update("struct");
+
+                for (structs.fields) |fld| {
+                    if (fld.is_comptime) @compileError("comptime fields are not supported.");
+                    computeTypeHashInternal(hasher, fld.field_type);
+                }
             }
         },
         .Optional => |opt| {
