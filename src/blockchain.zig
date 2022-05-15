@@ -187,7 +187,7 @@ pub const BlockChain = struct {
         const new_block = Block.newBlock(block_data, bc.last_hash);
         info("'{s}' - has a valid hash of '{}'", .{ block_data[0..], fmt.fmtSliceHexUpper(new_block.hash[0..]) });
         info("nonce is {}", .{new_block.nonce});
-        info("POW: {}", .{new_block.validate()});
+        info("POW: {}\n\n", .{new_block.validate()});
         assert(new_block.validate() == true);
 
         const txn = bc.db.startTxn(.rw, BLOCK_DB);

@@ -19,14 +19,14 @@ pub fn main() !void {
 
     var chain_iter = blockchain.ChainIterator.iterator(bc);
     //TODO:work on converting hashes to Big endian which is usually the expected form for display
-    info("start iteration", .{});
+    info("starting blockchain iteration\n", .{});
     while (chain_iter.next()) |current_block| {
         // const current_block = @intToPtr(*Block, block);
         info("previous hash is '{X}'", .{fmt.fmtSliceHexUpper(current_block.previous_hash[0..])});
         info("data is '{s}'", .{current_block.data});
         info("current hash of {s} is '{X}'", .{ current_block.data, fmt.fmtSliceHexUpper(current_block.hash[0..]) });
         info("nonce is {}", .{current_block.nonce});
-        info("POW: {}", .{current_block.validate()});
+        info("POW: {}\n\n", .{current_block.validate()});
     }
     info("done", .{});
 }
