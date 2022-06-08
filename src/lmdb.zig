@@ -425,8 +425,10 @@ test "test db key:str / value:str" {
     const wtxn = dbh.startTxn(.rw, BLOCK_DB);
 
     const val: [5]u8 = "value".*;
-    try wtxn.update("key", val);
-    wtxn.commitTxns();
+    {
+        try wtxn.update("key", val);
+        defer wtxn.commitTxns();
+    }
 
     const rtxn = dbh.startTxn(.ro, BLOCK_DB);
     defer rtxn.doneReading();

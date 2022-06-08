@@ -3,7 +3,7 @@ const Pkg = std.build.Pkg;
 const pkgs = struct {
     const s2s = Pkg{
         .name = "s2s",
-        .path = .{ .path = "./deps/s2s/s2s.zig" },
+        .source = .{ .path = "./deps/s2s/s2s.zig" },
         .dependencies = &[_]Pkg{},
     };
 };
