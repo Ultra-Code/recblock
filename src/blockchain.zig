@@ -23,6 +23,8 @@ pub fn reportOOM() noreturn {
 //the number of leading zeros in the target serves as a good approximation of the current difficult
 const TARGET_ZERO_BITS = 8;
 
+const GENESIS_DATA = "Genesis Block is the First Block";
+
 //CHANGE_AFTER_BETTER_SERIALIZATION: storing []const u8 as [N]u8 for easy serialization till pointer swizilling and unswizilling is learnt
 pub const Block = struct {
     //when the block is created
@@ -42,7 +44,7 @@ pub const Block = struct {
     pub fn genesisBlock() Block {
         var genesis_block = Block{
             .timestamp = std.time.timestamp(),
-            .data = "Genesis Block is the First Block".*,
+            .data = GENESIS_DATA.*,
             .previous_hash = undefined,
         };
         var hash: [32]u8 = undefined;
@@ -222,5 +224,22 @@ pub const ChainIterator = struct {
         } else |_| {
             return null;
         }
+    }
+
+    pub fn print(chain_iter: *ChainIterator) void {
+        //TODO:work on converting hashes to Big endian which is usually the expected form for display
+        //improve the hex formating
+        info("starting blockchain iteration\n", .{});
+        while (chain_iter.next()) |current_block| {
+            // const current_block = @intToPtr(*Block, block);
+            info("previous hash is '{X}'", .{fmt.fmtSliceHexUpper(current_block.previous_hash[0..])});
+            info("data is '{s}'", .{current_block.data});
+            info("current hash of {s} is '{X}'", .{ current_block.data, fmt.fmtSliceHexUpper(current_block.hash[0..]) });
+            info("nonce is {}", .{current_block.nonce});
+            info("POW: {}\n\n", .{current_block.validate()});
+            //remove when type of data is changed
+            if (std.mem.eql(u8, current_block.data[0..], GENESIS_DATA)) break;
+        }
+        info("done", .{});
     }
 };
