@@ -1,6 +1,54 @@
 const std = @import("std");
-const debug = std.log.debug;
-const testing = std.testing;
+const s2s = @import("s2s");
+
+pub const HASH_SIZE = 8; //size of std.hash.Fnv1a_64 is 64bit which is 8 byte
+
+///caller must free the returned slice
+///it is recommend you use either a fixedBufferAllocator or AreanAllocator
+pub fn serializeAlloc(allocator: std.mem.Allocator, data: anytype) []u8 {
+    var list_stream = std.ArrayList(u8).init(allocator);
+    s2s.serialize(list_stream.writer(), @TypeOf(data), data) catch unreachable;
+    return list_stream.items;
+}
+
+///serialize data with a comptime known size
+pub fn serialize(data: anytype) [HASH_SIZE + @sizeOf(@TypeOf(data))]u8 {
+    var serialized_data: [HASH_SIZE + @sizeOf(@TypeOf(data))]u8 = undefined;
+    var fbr = std.io.fixedBufferStream(&serialized_data);
+    const writer = fbr.writer();
+    s2s.serialize(writer, @TypeOf(data), data) catch unreachable;
+    return serialized_data;
+}
+
+fn getRawBytes(data: ?*anyopaque, start: usize, size: usize) []u8 {
+    return @ptrCast([*]u8, data.?)[start..size];
+}
+
+///deserialize bytes representing data as `T`
+///use when no allocation is required .ie data doesn't contain ptr or slice
+pub fn deserialize(comptime T: type, data: ?*anyopaque, size: usize) T {
+    // return std.mem.bytesAsSlice(T, getBytes(data.?, size))[0];
+    const serialized_data = getRawBytes(data, 0, size);
+
+    var fbr = std.io.fixedBufferStream(serialized_data);
+    fbr.seekTo(0) catch unreachable;
+
+    const reader = fbr.reader();
+    return s2s.deserialize(reader, T) catch unreachable;
+}
+
+///deserialize types with require allocation
+///recommend you use a `fixedBufferAllocator`
+pub fn deserializeAlloc(comptime T: type, fballocator: std.mem.Allocator, data: ?*anyopaque, size: usize) T {
+    // return std.mem.bytesAsSlice(T, getBytes(data.?, size))[0];
+    const serialized_data = getRawBytes(data, 0, size);
+
+    var fbr = std.io.fixedBufferStream(serialized_data);
+    fbr.seekTo(0) catch unreachable;
+
+    const reader = fbr.reader();
+    return s2s.deserializeAlloc(reader, T, fballocator) catch unreachable;
+}
 
 //IDEAS: consider maybe json serialization but prefer binnary serialization
 //READ: read into Google Protocol Buffers ,Thrift and Avro in I want to use well established serialization tools

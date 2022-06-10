@@ -10,12 +10,9 @@ const assert = std.debug.assert;
 const info = std.log.info;
 const testing = std.testing;
 const err = std.os.E;
+const serializer = @import("serializer.zig");
 
-const s2s = @import("s2s");
-const serialize = s2s.serialize;
-const deserialize = s2s.deserialize;
 const BLOCK_DB = @import("blockchain.zig").BLOCK_DB;
-pub const HASH_SIZE = 8; //size of std.hash.Fnv1a_64 is 64bit which is 8 byte
 
 const Env = mdb.MDB_env;
 const Key = mdb.MDB_val;
@@ -132,24 +129,10 @@ pub fn delDups(_: Lmdb, _: []const u8, _: anytype) void {
     //This function will return MDB_NOTFOUND if the specified key/data pair is not in the database.
     panic("TODO");
 }
-const InsertionType = enum {
-    put, //overwrite isn't allowed
-    update, //overwite data is allowed
-};
 
 //TODO:when MDB_DUPSORT is supported then support MDB_NODUPDATA flag
-fn insert(lmdb: Lmdb, insertion_t: InsertionType, key_val: []const u8, data: anytype) !void {
-    const insert_flags: c_uint = switch (insertion_t) {
-        .put => mdb.MDB_NOOVERWRITE, // don't overwrite data if key already exist
-        .update => 0,
-    };
-
-    const DataType = @TypeOf(data);
-    var serialized_data: [HASH_SIZE + @sizeOf(DataType)]u8 = undefined;
-
-    var fbr = std.io.fixedBufferStream(&serialized_data);
-    const writer = fbr.writer();
-    serialize(writer, DataType, data) catch unreachable;
+fn insert(lmdb: Lmdb, serialized_data: []const u8, key_val: []const u8) !void {
+    const insert_flags: c_uint = mdb.MDB_NOOVERWRITE; // don't overwrite data if key already exist
 
     const put_state = mdb.mdb_put(
         lmdb.txn.?,
@@ -162,17 +145,40 @@ fn insert(lmdb: Lmdb, insertion_t: InsertionType, key_val: []const u8, data: any
 }
 
 ///insert new key/data pair without overwriting already inserted pair
+///if `data` contains pointers or slices use `putAlloc`
 pub fn put(lmdb: Lmdb, key_val: []const u8, data: anytype) !void {
     ensureValidState(lmdb);
 
-    try insert(lmdb, .put, key_val, data);
+    const serialized_data = serializer.serialize(data);
+    try insert(lmdb, serialized_data[0..], key_val);
+}
+
+///use `putAlloc` when data contains slices or pointers
+///recommend you use fixedBufferAllocator or ArenaAllocator
+pub fn putAlloc(lmdb: Lmdb, fba: std.mem.Allocator, key_val: []const u8, data: anytype) !void {
+    ensureValidState(lmdb);
+    const serialized_data = serializer.serializeAlloc(fba, data);
+    defer fba.free(serialized_data);
+
+    try insert(lmdb, serialized_data[0..], key_val);
 }
 
 ///insert/update already existing key/data pair
 pub fn update(lmdb: Lmdb, key_val: []const u8, data: anytype) !void {
     ensureValidState(lmdb);
 
-    try insert(lmdb, .update, key_val, data);
+    const update_flag: c_uint = 0; //allow overwriting data
+
+    const serialized_data = serializer.serialize(data);
+
+    const update_state = mdb.mdb_put(
+        lmdb.txn.?,
+        lmdb.db_handle,
+        &key(key_val),
+        &value(serialized_data[0..]),
+        update_flag,
+    );
+    try checkState(update_state);
 }
 
 ///commit all transaction on the current db handle
@@ -205,34 +211,13 @@ pub fn abortTxns(lmdb: Lmdb) void {
     mdb.mdb_txn_abort(lmdb.txn.?);
 }
 
-fn getRawBytes(data: ?*anyopaque, start: usize, size: usize) []u8 {
-    return @ptrCast([*]u8, data.?)[start..size];
-}
-
-///get byte slice representing data
-pub fn getBytes(comptime len: usize, data: ?*anyopaque, size: usize) []u8 {
-    return getBytesAs([len]u8, data, size)[0..];
-}
-
-//TODO: handle the case where the type to deserialize needs to be allocated with a fixedBufferAllocator
-pub fn getBytesAs(comptime T: type, data: ?*anyopaque, size: usize) T {
-    // return std.mem.bytesAsSlice(T, getBytes(data.?, size))[0];
-    const serialized_data = getRawBytes(data, 0, size);
-
-    var fbr = std.io.fixedBufferStream(serialized_data);
-    fbr.seekTo(0) catch unreachable;
-
-    const reader = fbr.reader();
-    return deserialize(reader, T) catch unreachable;
-}
-
 ///This is any unsafe cast which discards const
 pub fn cast(comptime T: type, any_ptr: anytype) T {
     return @intToPtr(T, @ptrToInt(any_ptr));
 }
 
-///get the data as a slice of bytes
-pub fn get(lmdb: Lmdb, key_val: []const u8, comptime value_len: usize) ![]u8 {
+///get `key_val` as `T` when it doesn't require allocation
+pub fn get(lmdb: Lmdb, comptime T: type, key_val: []const u8) !T {
     ensureValidState(lmdb);
 
     var data: Val = undefined;
@@ -244,11 +229,12 @@ pub fn get(lmdb: Lmdb, key_val: []const u8, comptime value_len: usize) ![]u8 {
     );
 
     try checkState(get_state);
-    return getBytes(value_len, data.mv_data, data.mv_size);
+    return serializer.deserialize(T, data.mv_data, data.mv_size);
 }
 
-///get the data as type `T`
-pub fn getAs(lmdb: Lmdb, comptime T: type, key_val: []const u8) !T {
+///get the `key_val` as `T` when it requires allocation .ie it contains pointers/slices
+///recommend using fixedBufferAllocator or ArenaAllocator
+pub fn getAlloc(lmdb: Lmdb, comptime T: type, fba: std.mem.Allocator, key_val: []const u8) !T {
     ensureValidState(lmdb);
 
     var data: Val = undefined;
@@ -259,7 +245,7 @@ pub fn getAs(lmdb: Lmdb, comptime T: type, key_val: []const u8) !T {
         &data,
     );
     try checkState(get_state);
-    return getBytesAs(T, data.mv_data, data.mv_size);
+    return serializer.deserializeAlloc(T, fba, data.mv_data, data.mv_size);
 }
 
 fn key(data: []const u8) Key {
@@ -432,7 +418,7 @@ test "test db key:str / value:str" {
 
     const rtxn = dbh.startTxn(.ro, BLOCK_DB);
     defer rtxn.doneReading();
-    try testing.expectEqualSlices(u8, "value", (try rtxn.get("key", val.len)));
+    try testing.expectEqualSlices(u8, "value", (try rtxn.get([5]u8, "key"))[0..]);
 }
 
 test "test db update" {
@@ -455,7 +441,7 @@ test "test db update" {
     };
 
     try txn.update("data_key", data);
-    const gotten_data = try txn.getAs(Data, "data_key");
+    const gotten_data = try txn.get(Data, "data_key");
 
     try testing.expectEqualSlices(u8, data.char[0..], gotten_data.char[0..]);
     try testing.expectEqualSlices(u8, data.ochar[0..], gotten_data.ochar[0..]);
