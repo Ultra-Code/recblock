@@ -10,9 +10,11 @@ const assert = std.debug.assert;
 const info = std.log.info;
 const testing = std.testing;
 const err = std.os.E;
-const serializer = @import("serializer.zig");
 
-const BLOCK_DB = @import("blockchain.zig").BLOCK_DB;
+pub const Lmdb = @This();
+
+const serializer = @import("serializer.zig");
+const BLOCK_DB = @import("Blockchain.zig").BLOCK_DB;
 
 const Env = mdb.MDB_env;
 const Key = mdb.MDB_val;
@@ -20,8 +22,6 @@ const Val = mdb.MDB_val;
 const Txn = mdb.MDB_txn;
 const DbHandle = mdb.MDB_dbi;
 
-//TODO:folow convention of using upper case for structs in file
-pub const Lmdb = @This();
 const TxnType = enum { rw, ro };
 db_env: *Env,
 txn: ?*Txn = null,
@@ -158,7 +158,6 @@ pub fn put(lmdb: Lmdb, key_val: []const u8, data: anytype) !void {
 pub fn putAlloc(lmdb: Lmdb, fba: std.mem.Allocator, key_val: []const u8, data: anytype) !void {
     ensureValidState(lmdb);
     const serialized_data = serializer.serializeAlloc(fba, data);
-    defer fba.free(serialized_data);
 
     try insert(lmdb, serialized_data[0..], key_val);
 }
@@ -264,77 +263,62 @@ fn checkState(state: c_int) !void {
         mdb.MDB_SUCCESS => {},
         //key/data pair already exists */
         mdb.MDB_KEYEXIST => {
-            info("'{}' -> {s}", .{ state, mdb.mdb_strerror(state) });
             return error.KeyAlreadyExist;
         },
         //key/data pair not found (EOF) */
         mdb.MDB_NOTFOUND => {
-            info("'{}' -> {s}", .{ state, mdb.mdb_strerror(state) });
             return error.KeyNotFound;
         },
         //Requested page not found - this usually indicates corruption */
         mdb.MDB_PAGE_NOTFOUND => {
-            info("'{}' -> {s}", .{ state, mdb.mdb_strerror(state) });
             return error.RequestedPageNotFound;
         },
         //Located page was wrong type */
         mdb.MDB_CORRUPTED => {
-            info("'{}' -> {s}", .{ state, mdb.mdb_strerror(state) });
             return error.WrongPageType;
         },
         //Update of meta page failed or environment had fatal error */
         mdb.MDB_PANIC => {
-            info("'{}' -> {s}", .{ state, mdb.mdb_strerror(state) });
             return error.EnvFatalError;
         },
         //Environment version mismatch */
         mdb.MDB_VERSION_MISMATCH => {
-            info("'{}' -> {s}", .{ state, mdb.mdb_strerror(state) });
             return error.EnvVersionMismatch;
         },
         //File is not a valid LMDB file */
         mdb.MDB_INVALID => {
-            info("'{}' -> {s}", .{ state, mdb.mdb_strerror(state) });
             return error.InvalidDbFile;
         },
         //Environment mapsize reached */
         mdb.MDB_MAP_FULL => {
-            info("'{}' -> {s}", .{ state, mdb.mdb_strerror(state) });
             return error.EnvMapsizeFull;
         },
         //Environment maxdbs reached */
         mdb.MDB_DBS_FULL => {
-            info("'{}' -> {s}", .{ state, mdb.mdb_strerror(state) });
             return error.EnvMaxDbsOpened;
         },
         //Environment maxreaders reached */
         mdb.MDB_READERS_FULL => {
-            info("'{}' -> {s}", .{ state, mdb.mdb_strerror(state) });
             return error.EnvMaxReaders;
         },
         //Too many TLS keys in use - Windows only */
         mdb.MDB_TLS_FULL => {
-            info("'{}' -> {s}", .{ state, mdb.mdb_strerror(state) });
             return error.ManyTlsKeysUsed;
         },
         //Txn has too many dirty pages */
         mdb.MDB_TXN_FULL => {
-            info("'{}' -> {s}", .{ state, mdb.mdb_strerror(state) });
             return error.ManyTxnDirtyPages;
         },
         //Cursor stack too deep - internal error */
         mdb.MDB_CURSOR_FULL => {
-            info("'{}' -> {s}", .{ state, mdb.mdb_strerror(state) });
             return error.DeepCursorStack;
         },
         //Page has not enough space - internal error */
         mdb.MDB_PAGE_FULL => {
-            info("'{}' -> {s}", .{ state, mdb.mdb_strerror(state) });
             return error.NotEnoughPageSpace;
         },
         //Database contents grew beyond environment mapsize */
         mdb.MDB_MAP_RESIZED => {
-            info("'{}' -> {s}", .{ state, mdb.mdb_strerror(state) });
             return error.DbSizeGtEnvMapsize;
         },
         //Operation and DB incompatible, or DB type changed. This can mean:
@@ -343,61 +327,49 @@ fn checkState(state: c_int) !void {
         //Accessing a data record as a database, or vice versa.
         //The database was dropped and recreated with different flags.
         mdb.MDB_INCOMPATIBLE => {
-            info("'{}' -> {s}", .{ state, mdb.mdb_strerror(state) });
             return error.OpAndDbIncompatible;
         },
         //Invalid reuse of reader locktable slot */
         mdb.MDB_BAD_RSLOT => {
-            info("'{}' -> {s}", .{ state, mdb.mdb_strerror(state) });
             return error.InvalidReaderSlotReuse;
         },
         //Transaction must abort, has a child, or is invalid */
         mdb.MDB_BAD_TXN => {
-            info("'{}' -> {s}", .{ state, mdb.mdb_strerror(state) });
             return error.InvalidTxn;
         },
         //Unsupported size of key/DB name/data, or wrong DUPFIXED size */
         mdb.MDB_BAD_VALSIZE => {
-            info("'{}' -> {s}", .{ state, mdb.mdb_strerror(state) });
             return error.UnsupportedComponentSize;
         },
         //The specified DBI was changed unexpectedly */
         mdb.MDB_BAD_DBI => {
-            info("'{}' -> {s}", .{ state, mdb.mdb_strerror(state) });
             return error.InvalidDbHandle;
         },
         //out of memory.
         @enumToInt(err.NOENT) => {
-            info("'{}' -> {s}", .{ state, mdb.mdb_strerror(state) });
             return error.NoSuchFileOrDirectory;
         },
         //don't have adecuate permissions to perform operation
         @enumToInt(err.ACCES) => {
-            info("'{}' -> {s}", .{ state, mdb.mdb_strerror(state) });
             return error.PermissionDenied;
         },
         //the environment was locked by another process.
         @enumToInt(err.AGAIN) => {
-            info("'{}' -> {s}", .{ state, mdb.mdb_strerror(state) });
             return error.EnvLockedTryAgain;
         },
         @enumToInt(err.NOMEM) => {
-            info("'{}' -> {s}", .{ state, mdb.mdb_strerror(state) });
             return error.OutOfMemory;
         },
         //an invalid parameter was specified.
         @enumToInt(err.INVAL) => {
-            info("'{}' -> {s}", .{ state, mdb.mdb_strerror(state) });
             return error.InvalidArgument;
         },
         //a low-level I/O error occurred
         @enumToInt(err.IO) => {
-            info("'{}' -> {s}", .{ state, mdb.mdb_strerror(state) });
             return error.IOFailed;
         },
         //no more disk space on device.
         @enumToInt(err.NOSPC) => {
-            info("'{}' -> {s}", .{ state, mdb.mdb_strerror(state) });
             return error.DiskSpaceFull;
         },
         else => panic("'{}' -> {s}", .{ state, mdb.mdb_strerror(state) }),
@@ -405,14 +377,26 @@ fn checkState(state: c_int) !void {
 }
 
 test "test db key:str / value:str" {
-    var dbh = initdb("./testdb", .rw);
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath(tmp.sub_path[0..]);
+
+    const ta = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(ta);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const db_path = try std.cstr.addNullByte(allocator, try tmp.dir.realpathAlloc(allocator, "."));
+
+    var dbh = initdb(db_path, .rw);
     defer deinitdb(dbh);
 
     const wtxn = dbh.startTxn(.rw, BLOCK_DB);
 
     const val: [5]u8 = "value".*;
     {
-        try wtxn.update("key", val);
+        try wtxn.put("key", val);
         defer wtxn.commitTxns();
     }
 
@@ -422,11 +406,22 @@ test "test db key:str / value:str" {
 }
 
 test "test db update" {
-    var dbh = initdb("./testdb", .rw);
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath(tmp.sub_path[0..]);
+
+    const ta = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(ta);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const db_path = try std.cstr.addNullByte(allocator, try tmp.dir.realpathAlloc(allocator, "."));
+
+    var dbh = initdb(db_path, .rw);
     defer deinitdb(dbh);
 
     const txn = dbh.startTxn(.rw, BLOCK_DB);
-    //TODO(ultracode): find out why this causes a segfault
     defer txn.commitTxns();
 
     const Data = struct {
@@ -440,7 +435,7 @@ test "test db update" {
         .ochar = "is my data still here".*,
     };
 
-    try txn.update("data_key", data);
+    try txn.put("data_key", data);
     const gotten_data = try txn.get(Data, "data_key");
 
     try testing.expectEqualSlices(u8, data.char[0..], gotten_data.char[0..]);

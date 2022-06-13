@@ -1,4 +1,6 @@
 const std = @import("std");
+const Sha256 = std.crypto.hash.sha2.Sha256;
+
 const serializer = @import("serializer.zig");
 
 //Transactions just lock values with a script, which can be unlocked only by the one who locked them.
@@ -9,20 +11,28 @@ const OutList = std.ArrayListUnmanaged(TxOutput);
 //TxOutputs are indivisible,meaning you can't reference part of it's value
 //When an output is referenced in a new transaction, it’s spent as a whole.
 //And if its value is greater than required, a change is generated and sent back to the sender.
-const TxOutput = struct {
+pub const TxOutput = struct {
     //stores actual value of coins
     value: usize,
     //coins are stored by locking them with a puzzle/key, which is stored in the pub_key
     pub_key: []const u8,
+
+    pub fn canBeUnlockedWith(self: TxOutput, unlocking_data: []const u8) bool {
+        return std.mem.eql(u8, self.pub_key, unlocking_data);
+    }
 };
 
-const TxInput = struct {
+pub const TxInput = struct {
     //id of referenced output transaction
-    txid: []const u8,
+    out_id: []const u8,
     //index of an output in the transaction
-    index: usize,
+    out_index: usize,
     //provides signature data to be used to unlock an output’s pub_key
     sig: []const u8,
+
+    pub fn canUnlockOutputWith(self: TxInput, unlocking_data: []const u8) bool {
+        return std.mem.eql(u8, self.sig, unlocking_data);
+    }
 };
 
 //hash of transaction
@@ -43,7 +53,7 @@ pub fn initCoinBaseTx(arena: std.mem.Allocator, to: []const u8) Transaction {
 
     //the coinbase's sig contains arbituary data
     var inlist = InList{};
-    inlist.append(arena, TxInput{ .txid = "", .index = 0, .sig = data }) catch unreachable;
+    inlist.append(arena, TxInput{ .out_id = "", .out_index = std.math.maxInt(usize), .sig = data }) catch unreachable;
 
     var outlist = OutList{};
     outlist.append(arena, TxOutput{ .value = SUBSIDY, .pub_key = to }) catch unreachable;
@@ -51,6 +61,26 @@ pub fn initCoinBaseTx(arena: std.mem.Allocator, to: []const u8) Transaction {
     var tx = Transaction{ .id = undefined, .tx_in = inlist, .tx_out = outlist };
     tx.setId();
     return tx;
+}
+
+pub fn newTx(input: InList, output: OutList) Transaction {
+    var tx = Transaction{ .id = undefined, .tx_in = input, .tx_out = output };
+    tx.setId();
+    return tx;
+}
+
+pub fn isCoinBaseTx(self: Transaction) bool {
+    return self.tx_in.items.len == 1 and self.tx_in.items[0].out_id.len == 0 and self.tx_in.items[0].out_index == std.math.maxInt(usize);
+}
+
+test "isCoinBaseTx" {
+    const gpa = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var coinbase = initCoinBaseTx(allocator, "testing");
+    try std.testing.expect(isCoinBaseTx(coinbase));
 }
 
 ///set Id of transaction
@@ -61,12 +91,6 @@ fn setId(self: *Transaction) void {
     const serialized_data = serializer.serializeAlloc(fba, self);
 
     var hash: [32]u8 = undefined;
-    std.crypto.hash.sha2.Sha256.hash(serialized_data[0..], &hash, .{});
+    Sha256.hash(serialized_data[0..], &hash, .{});
     self.id = hash;
-}
-
-///release allocated Transactions
-pub fn deinit(self: *Transaction, arena: std.mem.Allocator) void {
-    self.tx_in.deinit(arena);
-    self.tx_out.deinit(arena);
 }

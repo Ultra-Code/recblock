@@ -1,20 +1,27 @@
 const std = @import("std");
-const fmt = std.fmt;
-const info = std.log.info;
+const builtin = @import("builtin");
 
-const blockchain = @import("blockchain.zig");
-const Block = blockchain.Block;
-const BlockChain = blockchain.BlockChain;
-const Lmdb = blockchain.Lmdb;
-const Cli = @import("cli.zig");
+const Cli = @import("Cli.zig");
+
+var default_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+const gpa = if (builtin.link_libc and builtin.mode != .Debug)
+    std.heap.raw_c_allocator
+else
+    default_allocator.allocator();
 
 pub fn main() !void {
-    var db_env = Lmdb.initdb("./db", .rw);
-    defer db_env.deinitdb();
+    defer if (builtin.mode == .Debug) {
+        _ = default_allocator.deinit();
+    };
+    var buf: [1024 * 1024 * 15]u8 = undefined;
+    const fba = std.heap.FixedBufferAllocator.init(&buf).allocator();
 
-    const genesis_block = Block.genesisBlock();
-    var bc = BlockChain.newChain(db_env, genesis_block);
-    var cli = Cli.init(bc);
+    var arena = std.heap.ArenaAllocator.init(fba);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+
+    var cli = Cli.init(allocator);
     cli.run();
 }
 

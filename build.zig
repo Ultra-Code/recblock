@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const Pkg = std.build.Pkg;
 const pkgs = struct {
     const s2s = Pkg{
@@ -25,9 +26,6 @@ pub fn build(b: *std.build.Builder) void {
     exe.addPackage(pkgs.s2s);
     exe.install();
 
-    //Add lmdb library for embeded key/value store
-    const builtin = @import("builtin");
-
     const run_cmd = exe.run();
     run_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| {
@@ -37,19 +35,17 @@ pub fn build(b: *std.build.Builder) void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
-    const exe_tests = b.addTestExe("recblock-test", "src/main.zig");
+    const exe_tests = b.addTest("src/main.zig");
     exe_tests.setTarget(target);
     exe_tests.setBuildMode(mode);
     exe_tests.addPackage(pkgs.s2s);
-    exe_tests.install();
-
-    const run_test = exe_tests.run();
 
     const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&run_test.step);
+    test_step.dependOn(&exe_tests.step);
 
     switch (builtin.target.os.tag) {
         .linux => {
+            //Add lmdb library for embeded key/value store
             exe.linkSystemLibrary("lmdb");
             exe.linkLibC();
 
