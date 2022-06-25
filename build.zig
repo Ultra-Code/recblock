@@ -8,6 +8,7 @@ const pkgs = struct {
         .dependencies = &[_]Pkg{},
     };
 };
+const LMDB_PATH = "./deps/lmdb/libraries/liblmdb/";
 
 pub fn build(b: *std.build.Builder) void {
     // Standard target options allows the person running `zig build` to choose
@@ -20,10 +21,23 @@ pub fn build(b: *std.build.Builder) void {
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
     const mode = b.standardReleaseOptions();
 
-    const exe = b.addExecutable("recblock", "src/main.zig");
+    //Add lmdb library for embeded key/value store
+    const lmdb = b.addStaticLibrary("lmdb", null);
+    lmdb.setTarget(target);
+    lmdb.setBuildMode(mode);
+    lmdb.addCSourceFiles(&.{ LMDB_PATH ++ "mdb.c", LMDB_PATH ++ "midl.c" }, &.{"-pthread"});
+    lmdb.linkLibC();
+    lmdb.install();
+
+    const target_name = target.allocDescription(b.allocator) catch unreachable;
+    const exe_name = std.fmt.allocPrint(b.allocator, "{[program]s}-{[target]s}", .{ .program = "recblock", .target = target_name }) catch unreachable;
+
+    const exe = b.addExecutable(exe_name, "src/main.zig");
     exe.setTarget(target);
     exe.setBuildMode(mode);
     exe.addPackage(pkgs.s2s);
+    exe.linkLibrary(lmdb);
+    exe.addIncludePath(LMDB_PATH);
     exe.install();
 
     const run_cmd = exe.run();
@@ -33,28 +47,17 @@ pub fn build(b: *std.build.Builder) void {
     }
 
     const run_step = b.step("run", "Run the app");
+    run_step.dependOn(&lmdb.step);
     run_step.dependOn(&run_cmd.step);
 
     const exe_tests = b.addTest("src/main.zig");
     exe_tests.setTarget(target);
     exe_tests.setBuildMode(mode);
     exe_tests.addPackage(pkgs.s2s);
+    exe_tests.linkLibrary(lmdb);
+    exe_tests.addIncludePath(LMDB_PATH);
 
     const test_step = b.step("test", "Run unit tests");
+    test_step.dependOn(&lmdb.step);
     test_step.dependOn(&exe_tests.step);
-
-    switch (builtin.target.os.tag) {
-        .linux => {
-            //Add lmdb library for embeded key/value store
-            exe.linkSystemLibrary("lmdb");
-            exe.linkLibC();
-
-            //link libraries for test
-            exe_tests.linkSystemLibrary("lmdb");
-            exe_tests.linkLibC();
-        },
-        else => {
-            @compileError("Support and Contribution for Other Oses is wellcomed");
-        },
-    }
 }

@@ -86,6 +86,8 @@ pub fn mineBlock(bc: *BlockChain, transactions: []const Transaction) void {
 ///find unspent transactions
 //TODO: add test for *UTX* and Tx Output fn's
 fn findUTxs(bc: BlockChain, address: []const u8) []const Transaction {
+    //TODO: find a way to cap the max stack usage
+    //INITIA_IDEA: copy relevant data and free blocks
     var buf: [1024 * 950]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&buf).allocator();
 
@@ -121,7 +123,7 @@ fn findUTxs(bc: BlockChain, address: []const u8) []const Transaction {
                     if (txinput.canUnlockOutputWith(address)) {
                         const input_tx_id = txinput.out_id[0..];
 
-                        spent_txos.put(input_tx_id, txinput.out_index) catch unreachable;
+                        spent_txos.putNoClobber(input_tx_id, txinput.out_index) catch unreachable;
                     }
                 }
             }
@@ -208,7 +210,7 @@ fn findSpendableOutputs(self: BlockChain, address: []const u8, amount: usize) st
         for (tx.tx_out.items) |output, out_index| {
             if (output.canBeUnlockedWith(address) and accumulated_amount < amount) {
                 accumulated_amount += output.value;
-                unspent_output.put(self.arena.dupe(u8, txid) catch unreachable, out_index) catch unreachable;
+                unspent_output.putNoClobber(self.arena.dupe(u8, txid) catch unreachable, out_index) catch unreachable;
 
                 if (accumulated_amount >= amount) {
                     break :spendables;

@@ -22,7 +22,7 @@ pub fn run(self: Cli) void {
     var buf: [1024]u8 = undefined;
     const fba = std.heap.FixedBufferAllocator.init(&buf).allocator();
 
-    var itr = try std.process.argsWithAllocator(fba);
+    var itr = std.process.argsWithAllocator(fba) catch unreachable;
     defer itr.deinit();
 
     _ = itr.skip(); //skip name of program
