@@ -13,7 +13,7 @@ pub fn main() !void {
     defer if (builtin.mode == .Debug) {
         _ = default_allocator.deinit();
     };
-    var buf: [1024 * 1024 * 15]u8 = undefined;
+    var buf: [1000 * 1000 * 8]u8 = undefined;
     const fba = std.heap.FixedBufferAllocator.init(&buf).allocator();
 
     var arena = std.heap.ArenaAllocator.init(fba);

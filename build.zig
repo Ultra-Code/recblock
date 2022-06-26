@@ -25,7 +25,7 @@ pub fn build(b: *std.build.Builder) void {
     const lmdb = b.addStaticLibrary("lmdb", null);
     lmdb.setTarget(target);
     lmdb.setBuildMode(mode);
-    lmdb.addCSourceFiles(&.{ LMDB_PATH ++ "mdb.c", LMDB_PATH ++ "midl.c" }, &.{"-pthread"});
+    lmdb.addCSourceFiles(&.{ LMDB_PATH ++ "mdb.c", LMDB_PATH ++ "midl.c" }, &.{ "-pthread", "-std=c2x" });
     lmdb.linkLibC();
     lmdb.install();
 
