@@ -1,7 +1,8 @@
 const std = @import("std");
-const BlockChain = @import("Blockchain.zig");
-const ChainIterator = BlockChain.ChainIterator;
-const Lmdb = @import("Lmdb.zig");
+const BlockChain = @import("./Blockchain.zig");
+const Wallets = @import("./Wallets.zig");
+const Iterator = @import("./Iterator.zig");
+const Lmdb = @import("./Lmdb.zig");
 
 const Cli = @This();
 
@@ -35,7 +36,8 @@ pub fn run(self: Cli) void {
             const chain_name = itr.next();
 
             if (chain_name) |name| {
-                _ = BlockChain.newChain(db_env, self.arena, name);
+                const bc_name = std.mem.bytesAsSlice(Wallets.Address, name)[0];
+                _ = BlockChain.newChain(db_env, self.arena, bc_name);
             } else {
                 printUsage(.createchain);
             }
@@ -46,11 +48,11 @@ pub fn run(self: Cli) void {
 
                     if (itr.next()) |from_option| {
                         if (std.mem.eql(u8, from_option, "--from")) {
-                            const from_address = itr.next().?;
+                            const from_address = std.mem.bytesAsSlice(Wallets.Address, itr.next().?)[0];
 
                             if (itr.next()) |to_option| {
                                 if (std.mem.eql(u8, to_option, "--to")) {
-                                    const to_address = itr.next().?;
+                                    const to_address = std.mem.bytesAsSlice(Wallets.Address, itr.next().?)[0];
                                     const amount = std.fmt.parseUnsigned(usize, amount_value, 10) catch unreachable;
 
                                     var bc = BlockChain.getChain(db_env, self.arena);
@@ -79,19 +81,21 @@ pub fn run(self: Cli) void {
         } else if (std.mem.eql(u8, argv, "getbalance")) {
             if (itr.next()) |address| {
                 const bc = BlockChain.getChain(db_env, self.arena);
-
-                const balance = bc.getBalance(address);
-                std.debug.print("'{[address]s}' has a balance of {[balance]d}\n", .{ .address = address, .balance = balance });
+                const users_address = std.mem.bytesAsSlice(Wallets.Address, address)[0];
+                const balance = bc.getBalance(users_address);
+                std.debug.print("'{[address]s}' has a balance of RBC {[balance]d}\n", .{ .address = users_address, .balance = balance });
             } else {
                 printUsage(.getbalance);
             }
         } else if (std.mem.eql(u8, argv, "printchain")) {
             const bc = BlockChain.getChain(db_env, self.arena);
 
-            var chain_iter = ChainIterator.iterator(bc.arena, bc.db, bc.last_hash);
+            var chain_iter = Iterator.iterator(bc.arena, bc.db, bc.last_hash);
             chain_iter.print();
-        } else {
-            printUsage(.help);
+        } else if (std.mem.eql(u8, argv, "createwallet")) {
+            const wallets = Wallets.initWallets(self.arena);
+            const wallet_address = wallets.createAndSaveWallet();
+            std.debug.print("Your new address is {[address]s}\n", .{ .address = wallet_address });
         }
     }
 }
@@ -111,6 +115,8 @@ fn printUsage(cmd: Cmd) void {
                 \\eg.zig build run -- createchain "blockchain name"
                 \\OR
                 \\zig build run -- printchain
+                \\OR
+                \\zig build run -- createwallet
                 \\OR
                 \\zig build run -- getbalance "address"
                 \\OR
@@ -133,5 +139,5 @@ fn printUsage(cmd: Cmd) void {
             , .{});
         },
     }
-    std.process.abort();
+    std.process.exit(7);
 }
