@@ -1,7 +1,7 @@
 const std = @import("std");
 const fmt = std.fmt;
 const mem = std.mem;
-const sha256 = std.crypto.hash.sha2.Sha256;
+const Blake3 = std.crypto.hash.Blake3;
 const testing = std.testing;
 
 const Block = @This();
@@ -17,16 +17,16 @@ const TARGET_ZERO_BITS = 8;
 
 //when the block is created
 timestamp: i64,
-//difficulty bits is the block header storing the difficulty at which the block was mined
-difficulty_bits: u7 = TARGET_ZERO_BITS, //u7 limit value from 0 to 127
 //Thus miners must discover by brute force the "nonce" that, when included in the block, results in an acceptable hash.
 nonce: usize = 0,
-//the actual valuable information contained in the block .eg Transactions
-transactions: std.ArrayListUnmanaged(Transaction),
 //stores the hash of the previous block
 previous_hash: [32]u8,
 //hash of the current block
 hash: [32]u8 = undefined,
+//the actual valuable information contained in the block .eg Transactions
+transactions: std.ArrayListUnmanaged(Transaction),
+//difficulty bits is the block header storing the difficulty at which the block was mined
+difficulty_bits: u7 = TARGET_ZERO_BITS, //u7 limit value from 0 to 127 since we can't have a difficult equal in bitsize to the hashsize which is 256
 
 ///mine a new block
 pub fn newBlock(arena: std.mem.Allocator, previous_hash: [32]u8, transactions: []const Transaction) Block {
@@ -77,8 +77,8 @@ fn hashBlock(self: Block, nonce: usize) u256 {
         .nonce = nonce_val,
     }) catch unreachable;
 
-    var hash: [32]u8 = undefined;
-    sha256.hash(block_headers, &hash, .{});
+    var hash: [Blake3.digest_length]u8 = undefined;
+    Blake3.hash(block_headers, &hash, .{});
 
     const hash_int = mem.bytesToValue(u256, hash[0..]);
 
@@ -87,10 +87,11 @@ fn hashBlock(self: Block, nonce: usize) u256 {
 
 fn getTargetHash(target_dificulty: u7) u256 {
     //hast to be compaired with for valid hashes to prove work done
-    const @"256bit": u9 = 256; //256 bit is 32 byte which is the size of a sha256 hash
+    const @"256bit": u9 = 256; //256 bit is 32 byte which is the size of a Blake3 hash
     const @"1": u256 = 1; //a 32 byte integer with the value of 1
-    const target_hash = @"1" << @intCast(u8, @"256bit" - target_dificulty);
-    return target_hash;
+    const difficult = @intCast(u8, @"256bit" - target_dificulty);
+    const target_hash_difficult = @shlExact(@"1", difficult);
+    return target_hash_difficult;
 }
 
 ///Proof of Work mining algorithm
@@ -122,8 +123,8 @@ fn hashTxs(self: Block) [32]u8 {
         txhashes = std.mem.concat(allocator, u8, &[_][]const u8{ txhashes, txn.id[0..] }) catch unreachable;
     }
 
-    var hash: [32]u8 = undefined;
-    sha256.hash(txhashes, &hash, .{});
+    var hash: [Blake3.digest_length]u8 = undefined;
+    Blake3.hash(txhashes, &hash, .{});
     return hash;
 }
 
