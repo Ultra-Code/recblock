@@ -40,6 +40,23 @@ pub fn build(b: *std.build.Builder) void {
     exe.addIncludePath(LMDB_PATH);
     exe.install();
 
+    switch (mode) {
+        .Debug => {},
+        .ReleaseSafe, .ReleaseFast, .ReleaseSmall => {
+            lmdb.link_function_sections = true;
+
+            exe.link_function_sections = true;
+            //FIXME: cross compiling for windows with strip and lto run into issues
+            //Wait for self-hosting and if problem still persist,open an issue to track this
+            if (!target.isWindows()) {
+                lmdb.want_lto = true;
+                lmdb.strip = true;
+
+                exe.want_lto = true;
+                exe.strip = true;
+            }
+        },
+    }
     const run_cmd = exe.run();
     run_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| {
