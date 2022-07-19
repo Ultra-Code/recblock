@@ -1,7 +1,10 @@
 const std = @import("std");
-const Sha256 = std.crypto.hash.sha2.Sha256;
+const Blake3 = std.crypto.hash.Blake3;
+const Wallets = @import("./Wallets.zig");
+const Wallet = Wallets.Wallet;
+pub const TxID = [Blake3.digest_length]u8;
 
-const serializer = @import("serializer.zig");
+const serializer = @import("./serializer.zig");
 
 //Transactions just lock values with a script, which can be unlocked only by the one who locked them.
 const Transaction = @This();
@@ -12,31 +15,41 @@ const OutList = std.ArrayListUnmanaged(TxOutput);
 //When an output is referenced in a new transaction, it’s spent as a whole.
 //And if its value is greater than required, a change is generated and sent back to the sender.
 pub const TxOutput = struct {
-    //stores actual value of coins
+    ///stores actual value of coins
     value: usize,
-    //coins are stored by locking them with a puzzle/key, which is stored in the pub_key
-    pub_key: []const u8,
+    ///coins are stored by locking them with a puzzle/key, which is stored in the pub_key
+    pub_key_hash: Wallets.PublicKeyHash,
+    ///simply locks an output to an `address` since When we send coins to someone, we know only their address
+    pub fn lock(self: *TxOutput, address: Wallets.Address) void {
+        const pub_key_hash = Wallet.getPubKeyHash(address);
+        self.pub_key_hash = pub_key_hash;
+    }
 
-    pub fn canBeUnlockedWith(self: TxOutput, unlocking_data: []const u8) bool {
-        return std.mem.eql(u8, self.pub_key, unlocking_data);
+    ///checks if provided public key hash was used to lock the output .ie if the output can be used by the owner of the pubkey
+    pub fn isLockedWithKey(self: TxOutput, pub_key_hash: Wallets.PublicKeyHash) bool {
+        return std.mem.eql(u8, self.pub_key_hash[0..], pub_key_hash[0..]);
     }
 };
 
 pub const TxInput = struct {
-    //id of referenced output transaction
-    out_id: []const u8,
-    //index of an output in the transaction
+    ///id of referenced output transaction
+    out_id: TxID,
+    ///index of an output in the transaction
     out_index: usize,
-    //provides signature data to be used to unlock an output’s pub_key
+    ///provides signature data to be used to unlock an output’s pub_key
     sig: []const u8,
 
-    pub fn canUnlockOutputWith(self: TxInput, unlocking_data: []const u8) bool {
-        return std.mem.eql(u8, self.sig, unlocking_data);
+    pub_key: Wallets.PublicKey,
+
+    ///checks that an input uses a specific key to unlock an output
+    pub fn usesKey(self: TxInput, pub_key_hash: Wallets.PublicKeyHash) bool {
+        const locking_hash = Wallet.hashPubKey(self.pub_key);
+        return std.mem.eql(u8, locking_hash[0..], pub_key_hash[0..]);
     }
 };
 
 //hash of transaction
-id: [32]u8,
+id: TxID,
 //Inputs of a new transaction reference outputs of a previous transaction
 tx_in: InList,
 // Outputs are where coins are actually stored.
@@ -47,16 +60,18 @@ const SUBSIDY = 10;
 
 //A coinbase transaction is a special type of transactions, which doesn’t require previously existing outputs.
 //This is the reward miners get for mining new blocks.
-pub fn initCoinBaseTx(arena: std.mem.Allocator, to: []const u8) Transaction {
+pub fn initCoinBaseTx(arena: std.mem.Allocator, to: Wallets.Address) Transaction {
     var buf: [128]u8 = undefined;
     const data = std.fmt.bufPrint(&buf, "Reward to '{s}'", .{to}) catch unreachable;
 
     //the coinbase's sig contains arbituary data
     var inlist = InList{};
-    inlist.append(arena, TxInput{ .out_id = "", .out_index = std.math.maxInt(usize), .sig = data }) catch unreachable;
+    const wallets = Wallets.getWallets(arena);
+    const tos_wallet = wallets.getWallet(to);
+    inlist.append(arena, TxInput{ .out_id = .{'0'} ** Blake3.digest_length, .out_index = std.math.maxInt(usize), .sig = data, .pub_key = tos_wallet.public_key }) catch unreachable;
 
     var outlist = OutList{};
-    outlist.append(arena, TxOutput{ .value = SUBSIDY, .pub_key = to }) catch unreachable;
+    outlist.append(arena, TxOutput{ .value = SUBSIDY, .pub_key_hash = Wallet.getPubKeyHash(to) }) catch unreachable;
 
     var tx = Transaction{ .id = undefined, .tx_in = inlist, .tx_out = outlist };
     tx.setId();
@@ -90,7 +105,7 @@ fn setId(self: *Transaction) void {
 
     const serialized_data = serializer.serializeAlloc(fba, self);
 
-    var hash: [32]u8 = undefined;
-    Sha256.hash(serialized_data[0..], &hash, .{});
+    var hash: [Blake3.digest_length]u8 = undefined;
+    Blake3.hash(serialized_data[0..], &hash, .{});
     self.id = hash;
 }
