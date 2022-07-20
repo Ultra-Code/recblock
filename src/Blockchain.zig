@@ -47,10 +47,11 @@ pub fn getChain(db: Lmdb, arena: std.mem.Allocator) BlockChain {
 //TODO: add dbExist logic for when creating a chain while one exist already
 pub fn newChain(db: Lmdb, arena: std.mem.Allocator, address: Wallets.Address) BlockChain {
     var buf: [1024 * 6]u8 = undefined;
-    const fba = std.heap.FixedBufferAllocator.init(&buf).allocator();
+    var fba = std.heap.FixedBufferAllocator.init(&buf);
+    const allocator = fba.allocator();
 
-    const coinbase_tx = Transaction.initCoinBaseTx(fba, address);
-    const genesis_block = Block.genesisBlock(fba, coinbase_tx);
+    const coinbase_tx = Transaction.initCoinBaseTx(allocator, address);
+    const genesis_block = Block.genesisBlock(allocator, coinbase_tx);
 
     info("new blockchain is create with address {s}\nhash of the created blockchain is '{X}'", .{
         address,
@@ -60,7 +61,7 @@ pub fn newChain(db: Lmdb, arena: std.mem.Allocator, address: Wallets.Address) Bl
     const txn = db.startTxn(.rw, BLOCK_DB);
     defer txn.commitTxns();
 
-    txn.putAlloc(fba, genesis_block.hash[0..], genesis_block) catch unreachable;
+    txn.putAlloc(allocator, genesis_block.hash[0..], genesis_block) catch unreachable;
     txn.put(LAST, genesis_block.hash) catch unreachable;
 
     return .{ .last_hash = genesis_block.hash, .db = db, .arena = arena };
@@ -69,9 +70,10 @@ pub fn newChain(db: Lmdb, arena: std.mem.Allocator, address: Wallets.Address) Bl
 ///add a new Block to the BlockChain
 pub fn mineBlock(bc: *BlockChain, transactions: []const Transaction) void {
     var buf: [8096]u8 = undefined;
-    const fba = std.heap.FixedBufferAllocator.init(&buf).allocator();
+    var fba = std.heap.FixedBufferAllocator.init(&buf);
+    const allocator = fba.allocator();
 
-    const new_block = Block.newBlock(fba, bc.last_hash, transactions);
+    const new_block = Block.newBlock(allocator, bc.last_hash, transactions);
     std.log.info("new transaction is {X}", .{fh(fmtHash(new_block.hash)[0..])});
 
     assert(new_block.validate() == true);
@@ -79,7 +81,7 @@ pub fn mineBlock(bc: *BlockChain, transactions: []const Transaction) void {
     const txn = bc.db.startTxn(.rw, BLOCK_DB);
     defer txn.commitTxns();
 
-    txn.putAlloc(fba, new_block.hash[0..], new_block) catch unreachable;
+    txn.putAlloc(allocator, new_block.hash[0..], new_block) catch unreachable;
     txn.update(LAST, new_block.hash) catch unreachable;
     bc.last_hash = new_block.hash;
 }
@@ -90,12 +92,13 @@ fn findUTxs(bc: BlockChain, pub_key_hash: Wallets.PublicKeyHash) []const Transac
     //TODO: find a way to cap the max stack usage
     //INITIA_IDEA: copy relevant data and free blocks
     var buf: [1024 * 950]u8 = undefined;
-    const fba = std.heap.FixedBufferAllocator.init(&buf).allocator();
+    var fba = std.heap.FixedBufferAllocator.init(&buf);
+    const allocator = fba.allocator();
 
     var unspent_txos = std.ArrayList(Transaction).init(bc.arena);
-    var spent_txos = TxMap.init(fba);
+    var spent_txos = TxMap.init(allocator);
 
-    var bc_itr = Iterator.iterator(fba, bc.db, bc.last_hash);
+    var bc_itr = Iterator.iterator(allocator, bc.db, bc.last_hash);
 
     while (bc_itr.next()) |block| {
         for (block.transactions.items) |tx| {

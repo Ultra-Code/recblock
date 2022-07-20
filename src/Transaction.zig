@@ -101,9 +101,9 @@ test "isCoinBaseTx" {
 ///set Id of transaction
 fn setId(self: *Transaction) void {
     var buf: [4096]u8 = undefined;
-    const fba = std.heap.FixedBufferAllocator.init(&buf).allocator();
+    var fba = std.heap.FixedBufferAllocator.init(&buf);
 
-    const serialized_data = serializer.serializeAlloc(fba, self);
+    const serialized_data = serializer.serializeAlloc(fba.allocator(), self);
 
     var hash: [Blake3.digest_length]u8 = undefined;
     Blake3.hash(serialized_data[0..], &hash, .{});

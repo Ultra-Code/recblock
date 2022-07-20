@@ -14,9 +14,9 @@ pub fn main() !void {
         _ = default_allocator.deinit();
     };
     var buf: [1000 * 1000 * 8]u8 = undefined;
-    const fba = std.heap.FixedBufferAllocator.init(&buf).allocator();
+    var fba = std.heap.FixedBufferAllocator.init(&buf);
 
-    var arena = std.heap.ArenaAllocator.init(fba);
+    var arena = std.heap.ArenaAllocator.init(fba.allocator());
     defer arena.deinit();
 
     const allocator = arena.allocator();

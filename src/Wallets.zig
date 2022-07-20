@@ -73,7 +73,8 @@ fn loadWallets(self: *Wallets) void {
     };
     defer file.close();
 
-    const reader = std.io.bufferedReader(file.reader()).reader();
+    var breader = std.io.bufferedReader(file.reader());
+    const reader = breader.reader();
     while (true) {
         const wallet_key = serializer.deserialize(reader, Address) catch |err| switch (err) {
             error.EndOfStream => return,
@@ -139,9 +140,9 @@ pub const Wallet = struct {
     //use base64 instead of bitcoins base58 for encoding address payload
     fn encodeBase64(versioned_payload: VersionedHash, checksum_payload: Checksum) Address {
         var buf: RawAddress = undefined;
-        const fba = std.heap.FixedBufferAllocator.init(&buf).allocator();
+        var fba = std.heap.FixedBufferAllocator.init(&buf);
 
-        const address_to_encode = std.mem.concat(fba, u8, &.{ &versioned_payload, &checksum_payload }) catch unreachable;
+        const address_to_encode = std.mem.concat(fba.allocator(), u8, &.{ &versioned_payload, &checksum_payload }) catch unreachable;
 
         const encoder = comptime base64.Base64Encoder.init(base64.url_safe_alphabet_chars, null);
         var dest_buf: Address = undefined;
@@ -166,9 +167,9 @@ pub const Wallet = struct {
 
     fn version(pub_key_hash: PublicKeyHash) VersionedHash {
         var versioned_payload_buf: VersionedHash = undefined;
-        const fba = std.heap.FixedBufferAllocator.init(&versioned_payload_buf).allocator();
+        var fba = std.heap.FixedBufferAllocator.init(&versioned_payload_buf);
 
-        _ = std.mem.concat(fba, u8, &.{ &.{VERSION}, pub_key_hash[0..] }) catch unreachable;
+        _ = std.mem.concat(fba.allocator(), u8, &.{ &.{VERSION}, pub_key_hash[0..] }) catch unreachable;
         return versioned_payload_buf;
     }
 

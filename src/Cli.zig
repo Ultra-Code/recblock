@@ -21,9 +21,9 @@ pub fn init(arena: std.mem.Allocator) Cli {
 
 pub fn run(self: Cli) void {
     var buf: [1024]u8 = undefined;
-    const fba = std.heap.FixedBufferAllocator.init(&buf).allocator();
+    var fba = std.heap.FixedBufferAllocator.init(&buf);
 
-    var itr = std.process.argsWithAllocator(fba) catch unreachable;
+    var itr = std.process.argsWithAllocator(fba.allocator()) catch unreachable;
     defer itr.deinit();
 
     _ = itr.skip(); //skip name of program
