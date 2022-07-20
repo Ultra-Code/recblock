@@ -47,3 +47,73 @@ pub fn print(chain_iter: *Iterator) void {
     }
     info("done", .{});
 }
+// const Self = @This();
+// const cast = @import("serializer.zig").cast;
+//
+// ptr: *anyopaque,
+// vtable: *const VTable,
+//
+// pub const VTable = struct { next: fn (ptr: *anyopaque) ?usize };
+//
+// pub fn init(pointer: anytype) Self {
+//     const Ptr = @TypeOf(pointer);
+//     const ptr_info = @typeInfo(Ptr);
+//
+//     if (ptr_info != .Pointer) @compileError("pointer must be of a pointer type");
+//     if (ptr_info.Pointer.size != .One) @compileError("pointer must be a single item pointer");
+//
+//     const alignment = ptr_info.Pointer.alignment;
+//
+//     const gen = struct {
+//         pub fn nextImpl(ptr: *anyopaque) ?usize {
+//             const self = @ptrCast(Ptr, @alignCast(alignment, ptr));
+//             return @call(.{ .modifier = .always_inline }, ptr_info.Pointer.child.next, .{self});
+//         }
+//         const vtable = VTable{ .next = nextImpl };
+//     };
+//
+//     return .{ .ptr = pointer, .vtable = &gen.vtable };
+// }
+//
+// pub inline fn next(self: Self) ?usize {
+//     return self.vtable.next(self.ptr);
+// }
+
+// const SomeVar = struct {
+//     fn SomeFunction(SomeArgs) void {
+//         DoSomething();
+//     }
+// }.SomeFunction;
+
+// const expect = @import("std").testing.expect;
+//
+// const Expr = union(enum) {
+//     value: i32,
+//     sum: [2]*const Expr,
+//     sub: [2]*const Expr,
+//     mul: [2]*const Expr,
+//     div: [2]*const Expr,
+// };
+//
+// fn eval(e: Expr) i32 {
+//     return switch (e) {
+//         .value => |x| x,
+//         .sum => |es| eval(es[0].*) + eval(es[1].*),
+//         .sub => |es| eval(es[0].*) - eval(es[1].*),
+//         .mul => |es| eval(es[0].*) * eval(es[1].*),
+//         .div => |es| @divFloor(eval(es[0].*), eval(es[1].*)),
+//     };
+// }
+//
+// test "(2+3)*(4*5) == 100" {
+//     const two = Expr{ .value = 2 };
+//     const three = Expr{ .value = 3 };
+//     const four = Expr{ .value = 4 };
+//     const five = Expr{ .value = 5 };
+//
+//     const plus = Expr{ .sum = .{ &two, &three } };
+//     const mul = Expr{ .mul = .{ &four, &five } };
+//     const result = Expr{ .mul = .{ &plus, &mul } };
+//
+//     try expect(eval(result) == 100);
+// }

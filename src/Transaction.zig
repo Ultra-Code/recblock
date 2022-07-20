@@ -101,7 +101,7 @@ test "isCoinBaseTx" {
 ///set Id of transaction
 fn setId(self: *Transaction) void {
     var buf: [4096]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buf).allocator();
+    const fba = std.heap.FixedBufferAllocator.init(&buf).allocator();
 
     const serialized_data = serializer.serializeAlloc(fba, self);
 

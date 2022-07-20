@@ -47,7 +47,7 @@ pub fn getChain(db: Lmdb, arena: std.mem.Allocator) BlockChain {
 //TODO: add dbExist logic for when creating a chain while one exist already
 pub fn newChain(db: Lmdb, arena: std.mem.Allocator, address: Wallets.Address) BlockChain {
     var buf: [1024 * 6]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buf).allocator();
+    const fba = std.heap.FixedBufferAllocator.init(&buf).allocator();
 
     const coinbase_tx = Transaction.initCoinBaseTx(fba, address);
     const genesis_block = Block.genesisBlock(fba, coinbase_tx);
@@ -69,7 +69,7 @@ pub fn newChain(db: Lmdb, arena: std.mem.Allocator, address: Wallets.Address) Bl
 ///add a new Block to the BlockChain
 pub fn mineBlock(bc: *BlockChain, transactions: []const Transaction) void {
     var buf: [8096]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buf).allocator();
+    const fba = std.heap.FixedBufferAllocator.init(&buf).allocator();
 
     const new_block = Block.newBlock(fba, bc.last_hash, transactions);
     std.log.info("new transaction is {X}", .{fh(fmtHash(new_block.hash)[0..])});
@@ -90,7 +90,7 @@ fn findUTxs(bc: BlockChain, pub_key_hash: Wallets.PublicKeyHash) []const Transac
     //TODO: find a way to cap the max stack usage
     //INITIA_IDEA: copy relevant data and free blocks
     var buf: [1024 * 950]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buf).allocator();
+    const fba = std.heap.FixedBufferAllocator.init(&buf).allocator();
 
     var unspent_txos = std.ArrayList(Transaction).init(bc.arena);
     var spent_txos = TxMap.init(fba);

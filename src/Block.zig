@@ -117,7 +117,7 @@ fn hashTxs(self: Block) [32]u8 {
     var txhashes: []u8 = &.{};
 
     var buf: [2048]u8 = undefined;
-    var allocator = std.heap.FixedBufferAllocator.init(&buf).allocator();
+    const allocator = std.heap.FixedBufferAllocator.init(&buf).allocator();
 
     for (self.transactions.items) |txn| {
         txhashes = std.mem.concat(allocator, u8, &[_][]const u8{ txhashes, txn.id[0..] }) catch unreachable;

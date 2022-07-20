@@ -44,8 +44,12 @@ pub fn build(b: *std.build.Builder) void {
         .Debug => {},
         .ReleaseSafe, .ReleaseFast, .ReleaseSmall => {
             lmdb.link_function_sections = true;
+            lmdb.omit_frame_pointer = true;
+            lmdb.red_zone = true;
 
             exe.link_function_sections = true;
+            exe.omit_frame_pointer = true;
+            exe.red_zone = true;
             //FIXME: cross compiling for windows with strip and lto run into issues
             //Wait for self-hosting and if problem still persist,open an issue to track this
             if (!target.isWindows()) {
