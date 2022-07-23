@@ -45,7 +45,14 @@ pub fn initdb(db_path: []const u8, txn_type: TxnType) Lmdb {
     const db_flags: c_uint = if (txn_type == .ro) mdb.MDB_RDONLY else 0;
     const permissions: c_uint = 0o0600; //octal permissions for created files in db_dir
     const open_state = mdb.mdb_env_open(db_env, db_path.ptr, db_flags, permissions);
-    checkState(open_state) catch unreachable;
+    checkState(open_state) catch |open_err| switch (open_err) {
+        error.NoSuchFileOrDirectory => {
+            std.fs.cwd().makeDir("db") catch unreachable;
+            const new_open_state = mdb.mdb_env_open(db_env, db_path.ptr, db_flags, permissions);
+            checkState(new_open_state) catch unreachable;
+        },
+        else => unreachable,
+    };
 
     return .{
         .db_env = db_env.?,

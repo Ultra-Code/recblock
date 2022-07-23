@@ -29,7 +29,12 @@ pub fn run(self: Cli) void {
     _ = itr.skip(); //skip name of program
 
     while (itr.next()) |argv| {
-        var db_env = Lmdb.initdb("./db", .rw);
+        if (std.mem.eql(u8, argv, "clean")) {
+            std.fs.cwd().deleteTree("db") catch unreachable;
+            return;
+        }
+
+        var db_env = Lmdb.initdb("db", .rw);
         defer db_env.deinitdb();
 
         if (std.mem.eql(u8, argv, "createchain")) {
