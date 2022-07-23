@@ -65,7 +65,7 @@ pub fn run(self: Cli) void {
                                     bc.sendValue(amount, from_address, to_address);
 
                                     std.debug.print("done sending RBC {d} from '{s}' to '{s}'\n", .{ amount, from_address, to_address });
-                                    std.debug.print("{[from_address]s} now has a balance of {[from_balance]d} and {[to_address]s} a balance of {[to_balance]d}\n", .{
+                                    std.debug.print("'{[from_address]s}' now has a balance of RBC {[from_balance]d} and '{[to_address]s}' a balance of RBC {[to_balance]d}\n", .{
                                         .from_address = from_address,
                                         .from_balance = bc.getBalance(from_address),
                                         .to_address = to_address,
@@ -100,7 +100,7 @@ pub fn run(self: Cli) void {
         } else if (std.mem.eql(u8, argv, "createwallet")) {
             const wallets = Wallets.initWallets(self.arena);
             const wallet_address = wallets.createAndSaveWallet();
-            std.debug.print("Your new address is {[address]s}\n", .{ .address = wallet_address });
+            std.debug.print("Your new address is '{[address]s}'\n", .{ .address = wallet_address });
         }
     }
 }

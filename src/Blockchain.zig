@@ -37,8 +37,8 @@ pub fn getChain(db: Lmdb, arena: std.mem.Allocator) BlockChain {
 
     if (txn.get([Blake3.digest_length]u8, LAST)) |last_block_hash| {
         return .{ .last_hash = last_block_hash, .db = db, .arena = arena };
-    } else |err| {
-        std.log.err("{s}:create a blockchain with creatchain command before using any other command", .{@errorName(err)});
+    } else |_| {
+        std.log.err("create a blockchain with creatchain command before using any other command", .{});
         std.process.exit(1);
     }
 }
@@ -53,28 +53,39 @@ pub fn newChain(db: Lmdb, arena: std.mem.Allocator, address: Wallets.Address) Bl
     const coinbase_tx = Transaction.initCoinBaseTx(allocator, address);
     const genesis_block = Block.genesisBlock(allocator, coinbase_tx);
 
-    info("new blockchain is create with address {s}\nhash of the created blockchain is '{X}'", .{
-        address,
-        fh(fmtHash(genesis_block.hash)[0..]),
-    });
-
     const txn = db.startTxn(.rw, BLOCK_DB);
     defer txn.commitTxns();
 
+    txn.put(LAST, genesis_block.hash) catch |newchain_err| switch (newchain_err) {
+        error.KeyAlreadyExist => {
+            std.log.err("Attempting to create new chain at an address '{s}' which already contains a chain", .{address});
+            std.process.exit(1);
+        },
+        else => unreachable,
+    };
     txn.putAlloc(allocator, genesis_block.hash[0..], genesis_block) catch unreachable;
-    txn.put(LAST, genesis_block.hash) catch unreachable;
+
+    info("new blockchain is create with address '{s}'\nhash of the created blockchain is '{X}'", .{
+        address,
+        fh(fmtHash(genesis_block.hash)[0..]),
+    });
+    info("You get a reward of RBC {d} for mining the coinbase transaction", .{Transaction.SUBSIDY});
 
     return .{ .last_hash = genesis_block.hash, .db = db, .arena = arena };
 }
 
 ///add a new Block to the BlockChain
 pub fn mineBlock(bc: *BlockChain, transactions: []const Transaction) void {
+    for (transactions) |tx| {
+        assert(bc.verifyTx(tx) == true);
+    }
+
     var buf: [8096]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&buf);
     const allocator = fba.allocator();
 
     const new_block = Block.newBlock(allocator, bc.last_hash, transactions);
-    std.log.info("new transaction is {X}", .{fh(fmtHash(new_block.hash)[0..])});
+    std.log.info("new transaction is '{X}'", .{fh(fmtHash(new_block.hash)[0..])});
 
     assert(new_block.validate() == true);
 
@@ -163,7 +174,7 @@ fn newUTx(self: BlockChain, amount: usize, from: Wallets.Address, to: Wallets.Ad
     var unspent_output = spendable_txns.unspent_output;
 
     if (accumulated_amount < amount) {
-        std.log.err("not enough funds to transfer RBC {d} from {s} to {s}", .{ amount, from, to });
+        std.log.err("not enough funds to transfer RBC {d} from '{s}' to '{s}'", .{ amount, from, to });
         std.process.exit(2);
     }
 
@@ -171,13 +182,21 @@ fn newUTx(self: BlockChain, amount: usize, from: Wallets.Address, to: Wallets.Ad
     //for each found output an input referencing it is created.
     var itr = unspent_output.iterator();
     const wallets = Wallets.getWallets(self.arena);
+    const froms_wallet = wallets.getWallet(from);
+
     while (itr.next()) |kv| {
         const txid = kv.key_ptr.*;
         const out_index = kv.value_ptr.*;
 
-        //TODO: sig should be appropriate
-        const froms_wallet = wallets.getWallet(from);
-        input.append(self.arena, Transaction.TxInput{ .out_id = txid, .out_index = out_index, .sig = from[0..], .pub_key = froms_wallet.public_key }) catch unreachable;
+        input.append(
+            self.arena,
+            Transaction.TxInput{
+                .out_id = txid,
+                .out_index = out_index,
+                .sig = std.mem.zeroes(Wallets.Signature),
+                .pub_key = froms_wallet.wallet_keys.public_key,
+            },
+        ) catch unreachable;
     }
 
     //Build a list of outputs
@@ -190,7 +209,10 @@ fn newUTx(self: BlockChain, amount: usize, from: Wallets.Address, to: Wallets.Ad
         output.append(self.arena, Transaction.TxOutput{ .value = (accumulated_amount - amount), .pub_key_hash = Wallet.getPubKeyHash(from) }) catch unreachable;
     }
 
-    return Transaction.newTx(input, output);
+    var newtx = Transaction.newTx(input, output);
+    //we sign the transaction with the keys of the owner/sender of the value
+    self.signTx(&newtx, froms_wallet.wallet_keys);
+    return newtx;
 }
 
 fn findSpendableOutputs(self: BlockChain, pub_key_hash: Wallets.PublicKeyHash, amount: usize) struct {
@@ -220,6 +242,47 @@ fn findSpendableOutputs(self: BlockChain, pub_key_hash: Wallets.PublicKeyHash, a
     }
 
     return .{ .accumulated_amount = accumulated_amount, .unspent_output = unspent_output };
+}
+
+///finds a transaction by its ID.This is used to build the `PrevTxMap`
+fn findTx(self: BlockChain, tx_id: Transaction.TxID) Transaction {
+    var itr = Iterator.iterator(self.arena, self.db, self.last_hash);
+
+    while (itr.next()) |block| {
+        for (block.transactions.items) |tx| {
+            if (std.mem.eql(u8, tx.id[0..], tx_id[0..])) return tx;
+        }
+        if (block.previous_hash[0] == '\x00') break;
+    }
+    unreachable;
+}
+
+///take a transaction `tx` finds all previous transactions it references and sign it with KeyPair `wallet_keys`
+fn signTx(self: BlockChain, tx: *Transaction, wallet_keys: Wallet.KeyPair) void {
+    var buf: [1024 * 1024]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buf);
+
+    var prev_txs = Transaction.PrevTxMap.init(fba.allocator());
+
+    for (tx.tx_in.items) |value_in| {
+        const found_tx = self.findTx(value_in.out_id);
+        prev_txs.putNoClobber(value_in.out_id, found_tx) catch unreachable;
+    }
+    tx.sign(wallet_keys, prev_txs, fba.allocator());
+}
+
+///take a transaction `tx` finds transactions it references and verify it
+fn verifyTx(self: BlockChain, tx: Transaction) bool {
+    var buf: [1024 * 1024]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buf);
+
+    var prev_txs = Transaction.PrevTxMap.init(fba.allocator());
+
+    for (tx.tx_in.items) |value_in| {
+        const found_tx = self.findTx(value_in.out_id);
+        prev_txs.putNoClobber(value_in.out_id, found_tx) catch unreachable;
+    }
+    return tx.verify(prev_txs, fba.allocator());
 }
 
 pub fn getBalance(self: BlockChain, address: Wallets.Address) usize {

@@ -1,6 +1,6 @@
 const std = @import("std");
 const crypto = std.crypto;
-const Ed25519 = crypto.sign.Ed25519;
+pub const Ed25519 = crypto.sign.Ed25519;
 const Blake3 = crypto.hash.Blake3;
 const Blake2b160 = crypto.hash.blake2.Blake2b160;
 const base64 = std.base64;
@@ -13,11 +13,12 @@ pub const PUB_KEY_HASH_LEN = Blake2b160.digest_length;
 pub const VERSION_LEN = 1;
 const VERSION = '\x01';
 pub const PUB_KEY_LEN = Ed25519.public_length;
-const WALLET_DATA = "wallet.dat";
+const WALLET_DATA = "db/wallet.dat";
 pub const ADDRESS_SIZE = encodedAddressLenght();
 
-const PrivateKey = [Ed25519.secret_length]u8;
+pub const PrivateKey = [Ed25519.secret_length]u8;
 pub const PublicKey = [Ed25519.public_length]u8;
+pub const Signature = [Ed25519.signature_length]u8;
 pub const Address = [ADDRESS_SIZE]u8;
 pub const PublicKeyHash = [PUB_KEY_HASH_LEN]u8;
 pub const Checksum = [ADDR_CKSUM_LEN]u8;
@@ -117,18 +118,17 @@ fn saveWallets(self: Wallets) void {
 pub const Wallet = struct {
     //https://security.stackexchange.com/questions/50878/ecdsa-vs-ecdh-vs-ed25519-vs-curve25519
     //deviete from bitcoin which uses ecdsa
-    private_key: PrivateKey,
-    public_key: PublicKey,
+    pub const KeyPair = Ed25519.KeyPair;
+    wallet_keys: KeyPair,
 
     ///use to initialize `Wallet` ie. the public and private keys
     pub fn initWallet() Wallet {
-        const kp = Ed25519.KeyPair.create(null) catch unreachable;
-        return .{ .private_key = kp.secret_key, .public_key = kp.public_key };
+        return .{ .wallet_keys = Ed25519.KeyPair.create(null) catch unreachable };
     }
 
     //TODO: return a array of known size
     pub fn address(self: Wallet) Address {
-        const pub_key_hash = hashPubKey(self.public_key);
+        const pub_key_hash = hashPubKey(self.wallet_keys.public_key);
 
         const versioned_payload = version(pub_key_hash);
 

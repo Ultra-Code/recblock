@@ -1,8 +1,12 @@
 const std = @import("std");
+const zeroes = std.mem.zeroes;
+const Allocator = std.mem.Allocator;
 const Blake3 = std.crypto.hash.Blake3;
 const Wallets = @import("./Wallets.zig");
 const Wallet = Wallets.Wallet;
 pub const TxID = [Blake3.digest_length]u8;
+///previous transaction which are found to contain a specified TxID
+pub const PrevTxMap = std.AutoArrayHashMap(TxID, Transaction);
 
 const serializer = @import("./serializer.zig");
 
@@ -37,7 +41,7 @@ pub const TxInput = struct {
     ///index of an output in the transaction
     out_index: usize,
     ///provides signature data to be used to unlock an output’s pub_key
-    sig: []const u8,
+    sig: Wallets.Signature,
 
     pub_key: Wallets.PublicKey,
 
@@ -56,19 +60,23 @@ tx_in: InList,
 tx_out: OutList,
 
 //subsidy is the amount of reward for mining
-const SUBSIDY = 10;
+pub const SUBSIDY = 10;
 
 //A coinbase transaction is a special type of transactions, which doesn’t require previously existing outputs.
 //This is the reward miners get for mining new blocks.
-pub fn initCoinBaseTx(arena: std.mem.Allocator, to: Wallets.Address) Transaction {
-    var buf: [128]u8 = undefined;
-    const data = std.fmt.bufPrint(&buf, "Reward to '{s}'", .{to}) catch unreachable;
-
-    //the coinbase's sig contains arbituary data
+pub fn initCoinBaseTx(arena: Allocator, to: Wallets.Address) Transaction {
     var inlist = InList{};
     const wallets = Wallets.getWallets(arena);
     const tos_wallet = wallets.getWallet(to);
-    inlist.append(arena, TxInput{ .out_id = .{'0'} ** Blake3.digest_length, .out_index = std.math.maxInt(usize), .sig = data, .pub_key = tos_wallet.public_key }) catch unreachable;
+    inlist.append(
+        arena,
+        TxInput{
+            .out_id = zeroes(TxID),
+            .out_index = std.math.maxInt(usize),
+            .sig = zeroes(Wallets.Signature),
+            .pub_key = tos_wallet.wallet_keys.public_key,
+        },
+    ) catch unreachable;
 
     var outlist = OutList{};
     outlist.append(arena, TxOutput{ .value = SUBSIDY, .pub_key_hash = Wallet.getPubKeyHash(to) }) catch unreachable;
@@ -76,6 +84,89 @@ pub fn initCoinBaseTx(arena: std.mem.Allocator, to: Wallets.Address) Transaction
     var tx = Transaction{ .id = undefined, .tx_in = inlist, .tx_out = outlist };
     tx.setId();
     return tx;
+}
+
+///Transactions must be signed because this is the only way in Bitcoin/Recblock to guarantee that one cannot spend coins
+///belonging to someone else.Considering that transactions unlock previous outputs, redistribute their values, and lock new outputs,
+///the following data must be signed:
+///Public key hashes stored in unlocked outputs. This identifies “sender” of a transaction.
+///Public key hashes stored in new, locked, outputs. This identifies “recipient” of a transaction.
+///Values of new outputs.
+///Since we don’t need to sign the public keys stored in inputs. It’s not a transaction that’s signed, but its
+///trimmed copy with tx_inputs storing public_key_hash from referenced outputs
+///in order to sign a transaction, we need to access the outputs referenced in the inputs of the transaction , thus
+///we need the transactions that store these outputs. `prev_txs`
+pub fn sign(self: *Transaction, wallet_keys: Wallet.KeyPair, prev_txs: PrevTxMap, fba: Allocator) void {
+    //Coinbase transactions are not signed because they don't contain real inputs
+    if (self.isCoinBaseTx()) return;
+
+    //A trimmed copy will be signed, not a full transaction:
+    //The copy will include all the inputs and outputs, but TxInput.sig and TxInput.pub_key are empty
+    var trimmed_tx_copy = self.trimmedCopy(fba);
+
+    for (trimmed_tx_copy.tx_in.items) |value_in, in_index| {
+        //we use prev_txs because that has signed and verified to help in signing and verifying new transactions
+        if (prev_txs.get(value_in.out_id)) |prev_tx| {
+            //since the public_key of trimmedCopy is empty we store a copy of the pub_key_hash from the transaction output
+            //referenced by the input `value_in`'s out_index which was found to have the same TxID provided by `prev_tx`
+            copyHashIntoPubKey(&trimmed_tx_copy.tx_in.items[in_index].pub_key, prev_tx.tx_out.items[value_in.out_index].pub_key_hash);
+        }
+        trimmed_tx_copy.setId();
+
+        var noise: [Wallets.Ed25519.noise_length]u8 = undefined;
+        std.crypto.random.bytes(&noise);
+
+        const signature = Wallets.Ed25519.sign(trimmed_tx_copy.id[0..], wallet_keys, noise) catch unreachable;
+
+        self.tx_in.items[in_index].sig = signature;
+    }
+}
+
+fn copyHashIntoPubKey(pub_key: *Wallets.PublicKey, pub_key_hash: Wallets.PublicKeyHash) void {
+    //copy 0..20 of pub_key_hash into the beginning of pub_key
+    @memcpy(pub_key[0..], pub_key_hash[0..], @sizeOf(Wallets.PublicKeyHash));
+    //recopy 12 bytes from pub_key_hash into 21..end of pub_key
+    @memcpy(pub_key[@sizeOf(Wallets.PublicKeyHash)..], pub_key_hash[0..], @sizeOf(Wallets.PublicKey) - @sizeOf(Wallets.PublicKeyHash));
+}
+
+pub fn verify(self: Transaction, prev_txs: PrevTxMap, fba: Allocator) bool {
+    var trimmed_tx_copy = self.trimmedCopy(fba);
+
+    for (self.tx_in.items) |value_in, in_index| {
+        if (prev_txs.get(value_in.out_id)) |prev_tx| {
+            copyHashIntoPubKey(&trimmed_tx_copy.tx_in.items[in_index].pub_key, prev_tx.tx_out.items[value_in.out_index].pub_key_hash);
+        }
+        trimmed_tx_copy.setId();
+
+        if (Wallets.Ed25519.verify(value_in.sig, trimmed_tx_copy.id[0..], value_in.pub_key)) |_| {} else |err| {
+            std.log.info("public key has a value of {}", .{value_in});
+            std.log.err("{s} occured while verifying the transaction", .{@errorName(err)});
+            return false;
+        }
+    }
+    return true;
+}
+
+fn trimmedCopy(self: Transaction, fba: Allocator) Transaction {
+    var inlist = InList{};
+    var outlist = OutList{};
+
+    for (self.tx_in.items) |value_in| {
+        inlist.append(fba, TxInput{
+            .out_id = value_in.out_id,
+            .out_index = value_in.out_index,
+            .pub_key = zeroes(Wallets.PublicKey),
+            .sig = zeroes(Wallets.Signature),
+        }) catch unreachable;
+    }
+
+    for (self.tx_out.items) |value_out| {
+        outlist.append(fba, TxOutput{ .value = value_out.value, .pub_key_hash = value_out.pub_key_hash }) catch unreachable;
+    }
+
+    //At this moment, all transactions but the current one are “empty”,
+    //i.e. their .sig and .pub_key fields are set to zeroes.
+    return .{ .id = self.id, .tx_in = inlist, .tx_out = outlist };
 }
 
 pub fn newTx(input: InList, output: OutList) Transaction {
