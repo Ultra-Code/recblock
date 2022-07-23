@@ -20,6 +20,7 @@ const Wallet = Wallets.Wallet;
 const Address = Wallets.Address;
 const fmtHash = utils.fmtHash;
 const BLOCK_DB = utils.BLOCK_DB;
+const WALLET = "wallet.dat";
 const LAST = utils.LAST;
 const OutputIndex = usize;
 const TxMap = std.AutoHashMap(Transaction.TxID, OutputIndex);
@@ -29,6 +30,7 @@ const TxMap = std.AutoHashMap(Transaction.TxID, OutputIndex);
 last_hash: [Blake3.digest_length]u8,
 db: Lmdb,
 arena: std.mem.Allocator,
+wallet_path: []const u8,
 
 //TODO:organise and document exit codes
 pub fn getChain(db: Lmdb, arena: std.mem.Allocator) BlockChain {
@@ -36,7 +38,8 @@ pub fn getChain(db: Lmdb, arena: std.mem.Allocator) BlockChain {
     defer txn.commitTxns();
 
     if (txn.get([Blake3.digest_length]u8, LAST)) |last_block_hash| {
-        return .{ .last_hash = last_block_hash, .db = db, .arena = arena };
+        const wallet_path = txn.getAlloc([]const u8, arena, WALLET) catch unreachable;
+        return .{ .last_hash = last_block_hash, .db = db, .arena = arena, .wallet_path = wallet_path };
     } else |_| {
         std.log.err("create a blockchain with creatchain command before using any other command", .{});
         std.process.exit(1);
@@ -44,13 +47,12 @@ pub fn getChain(db: Lmdb, arena: std.mem.Allocator) BlockChain {
 }
 
 ///create a new BlockChain
-//TODO: add dbExist logic for when creating a chain while one exist already
-pub fn newChain(db: Lmdb, arena: std.mem.Allocator, address: Wallets.Address) BlockChain {
+pub fn newChain(db: Lmdb, arena: std.mem.Allocator, address: Wallets.Address, wallet_path: []const u8) BlockChain {
     var buf: [1024 * 6]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&buf);
     const allocator = fba.allocator();
 
-    const coinbase_tx = Transaction.initCoinBaseTx(allocator, address);
+    const coinbase_tx = Transaction.initCoinBaseTx(allocator, address, wallet_path);
     const genesis_block = Block.genesisBlock(allocator, coinbase_tx);
 
     const txn = db.startTxn(.rw, BLOCK_DB);
@@ -63,6 +65,7 @@ pub fn newChain(db: Lmdb, arena: std.mem.Allocator, address: Wallets.Address) Bl
         },
         else => unreachable,
     };
+    txn.putAlloc(allocator, WALLET, wallet_path) catch unreachable;
     txn.putAlloc(allocator, genesis_block.hash[0..], genesis_block) catch unreachable;
 
     info("new blockchain is create with address '{s}'\nhash of the created blockchain is '{X}'", .{
@@ -71,7 +74,7 @@ pub fn newChain(db: Lmdb, arena: std.mem.Allocator, address: Wallets.Address) Bl
     });
     info("You get a reward of RBC {d} for mining the coinbase transaction", .{Transaction.SUBSIDY});
 
-    return .{ .last_hash = genesis_block.hash, .db = db, .arena = arena };
+    return .{ .last_hash = genesis_block.hash, .db = db, .arena = arena, .wallet_path = wallet_path };
 }
 
 ///add a new Block to the BlockChain
@@ -181,7 +184,7 @@ fn newUTx(self: BlockChain, amount: usize, from: Wallets.Address, to: Wallets.Ad
     //Build a list of inputs
     //for each found output an input referencing it is created.
     var itr = unspent_output.iterator();
-    const wallets = Wallets.getWallets(self.arena);
+    const wallets = Wallets.getWallets(self.arena, self.wallet_path);
     const froms_wallet = wallets.getWallet(from);
 
     while (itr.next()) |kv| {
@@ -317,15 +320,23 @@ test "getBalance , sendValue" {
     var db = Lmdb.initdb(db_path, .rw);
     defer db.deinitdb();
 
-    var bc = newChain(db, allocator, "genesis");
+    const wallet_path = try std.fmt.allocPrint(allocator, "zig-cache/tmp/{s}/wallet.dat", .{tmp.sub_path[0..]});
+    var wallets = Wallets.initWallets(allocator, wallet_path);
+
+    const genesis_wallet = wallets.createWallet();
+    var bc = newChain(db, allocator, genesis_wallet, wallets.wallet_path);
+
     //a reward of 10 RBC is given for mining the coinbase
-    try std.testing.expectEqual(@as(usize, 10), bc.getBalance("genesis"));
+    try std.testing.expectEqual(@as(usize, 10), bc.getBalance(genesis_wallet));
 
-    bc.sendValue(7, "genesis", "me");
-    try std.testing.expectEqual(@as(usize, 3), bc.getBalance("genesis"));
-    try std.testing.expectEqual(@as(usize, 7), bc.getBalance("me"));
+    const my_wallet = wallets.createWallet();
+    bc.sendValue(7, genesis_wallet, my_wallet);
 
-    bc.sendValue(2, "me", "genesis");
-    try std.testing.expectEqual(@as(usize, 5), bc.getBalance("genesis"));
-    try std.testing.expectEqual(@as(usize, 5), bc.getBalance("me"));
+    try std.testing.expectEqual(@as(usize, 3), bc.getBalance(genesis_wallet));
+    try std.testing.expectEqual(@as(usize, 7), bc.getBalance(my_wallet));
+
+    bc.sendValue(2, my_wallet, genesis_wallet);
+
+    try std.testing.expectEqual(@as(usize, 5), bc.getBalance(my_wallet));
+    try std.testing.expectEqual(@as(usize, 5), bc.getBalance(genesis_wallet));
 }

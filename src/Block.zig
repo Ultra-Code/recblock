@@ -130,15 +130,22 @@ fn hashTxs(self: Block) [32]u8 {
 }
 
 test "newBlock" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
     const ta = std.testing.allocator;
     var arena = std.heap.ArenaAllocator.init(ta);
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var coinbase = Transaction.initCoinBaseTx(allocator, "genesis");
+    const Wallets = @import("./Wallets.zig").Wallets;
+    const wallet_path = try std.fmt.allocPrint(allocator, "zig-cache/tmp/{s}/wallet.dat", .{tmp.sub_path[0..]});
 
+    var wallets = Wallets.initWallets(allocator, wallet_path);
+    const genesis_wallet = wallets.createWallet();
+
+    var coinbase = Transaction.initCoinBaseTx(allocator, genesis_wallet, wallets.wallet_path);
     var genesis_block = Block.genesisBlock(allocator, coinbase);
-
     var new_block = newBlock(allocator, genesis_block.hash, &.{coinbase});
 
     try testing.expectEqualSlices(u8, genesis_block.hash[0..], new_block.previous_hash[0..]);

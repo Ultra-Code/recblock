@@ -3,6 +3,7 @@ const BlockChain = @import("./Blockchain.zig");
 const Wallets = @import("./Wallets.zig");
 const Iterator = @import("./Iterator.zig");
 const Lmdb = @import("./Lmdb.zig");
+const WALLET_STORAGE = "db/wallet.dat";
 
 const Cli = @This();
 
@@ -41,8 +42,8 @@ pub fn run(self: Cli) void {
             const chain_name = itr.next();
 
             if (chain_name) |name| {
-                const bc_name = std.mem.bytesAsSlice(Wallets.Address, name)[0];
-                _ = BlockChain.newChain(db_env, self.arena, bc_name);
+                const bc_address = std.mem.bytesAsSlice(Wallets.Address, name)[0];
+                _ = BlockChain.newChain(db_env, self.arena, bc_address, WALLET_STORAGE);
             } else {
                 printUsage(.createchain);
             }
@@ -98,8 +99,8 @@ pub fn run(self: Cli) void {
             var chain_iter = Iterator.iterator(bc.arena, bc.db, bc.last_hash);
             chain_iter.print();
         } else if (std.mem.eql(u8, argv, "createwallet")) {
-            const wallets = Wallets.initWallets(self.arena);
-            const wallet_address = wallets.createAndSaveWallet();
+            const wallets = Wallets.initWallets(self.arena, WALLET_STORAGE);
+            const wallet_address = wallets.createWallet();
             std.debug.print("Your new address is '{[address]s}'\n", .{ .address = wallet_address });
         }
     }

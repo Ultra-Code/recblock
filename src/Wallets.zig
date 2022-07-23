@@ -13,7 +13,6 @@ pub const PUB_KEY_HASH_LEN = Blake2b160.digest_length;
 pub const VERSION_LEN = 1;
 const VERSION = '\x01';
 pub const PUB_KEY_LEN = Ed25519.public_length;
-const WALLET_DATA = "db/wallet.dat";
 pub const ADDRESS_SIZE = encodedAddressLenght();
 
 pub const PrivateKey = [Ed25519.secret_length]u8;
@@ -29,31 +28,33 @@ pub const Wallets = @This();
 const WalleltMap = std.AutoArrayHashMap(Address, Wallet);
 ///to keep a collection of wallets, save them to a file, and load them from it when needed
 wallets: WalleltMap,
-arena: std.mem.Allocator,
+///path to storage for wallets
+wallet_path: []const u8,
 
 ///use to initialize `Wallets`
-pub fn initWallets(arena: std.mem.Allocator) Wallets {
-    return .{ .wallets = WalleltMap.init(arena), .arena = arena };
+pub fn initWallets(arena: std.mem.Allocator, wallet_path: []const u8) Wallets {
+    return .{ .wallets = WalleltMap.init(arena), .wallet_path = wallet_path };
 }
 
-pub fn createWallet(self: *Wallets) Address {
+fn newWallet(self: *Wallets) Address {
     const wallet = Wallet.initWallet();
     const wallet_address = wallet.address();
     self.wallets.putNoClobber(wallet_address, wallet) catch unreachable;
     return wallet_address;
 }
 
-pub fn createAndSaveWallet(self: Wallets) Address {
-    var wallets = getWallets(self.arena);
-    const wallet_address = wallets.createWallet();
+///create a new wallet and save it into `wallet_path`
+pub fn createWallet(self: Wallets) Address {
+    var wallets = getWallets(self.wallets.allocator, self.wallet_path);
+    const wallet_address = wallets.newWallet();
     wallets.saveWallets();
     return wallet_address;
 }
 
-///return previous wallets from `wallet.dat` else return a new empty wallet
 //TODO: optimize so that not all wallets are loaded into memory this is a potentially expensive operation
-pub fn getWallets(arena: std.mem.Allocator) Wallets {
-    var wallets = initWallets(arena);
+///return previous wallets from `wallet_path` else return a new empty wallet
+pub fn getWallets(arena: std.mem.Allocator, wallet_path: []const u8) Wallets {
+    var wallets = initWallets(arena, wallet_path);
     wallets.loadWallets();
     return wallets;
 }
@@ -64,13 +65,9 @@ pub fn getWallet(self: Wallets, address: Address) Wallet {
 
 ///load saved wallet data
 fn loadWallets(self: *Wallets) void {
-    const file = std.fs.cwd().openFile(WALLET_DATA, .{}) catch |err| switch (err) {
-        //TODO: maybe do nothing since this is called during the creation of wallets in cli
+    const file = std.fs.cwd().openFile(self.wallet_path, .{}) catch |err| switch (err) {
         error.FileNotFound => return,
-        else => {
-            std.log.err("{s}", .{@errorName(err)});
-            std.process.exit(3);
-        },
+        else => unreachable,
     };
     defer file.close();
 
@@ -86,19 +83,13 @@ fn loadWallets(self: *Wallets) void {
         self.wallets.putNoClobber(wallet_key, wallet_value) catch unreachable;
     }
 }
-//save wallets to `WALLET_DATA`
 //TODO: oraganize exit codes
 //TODO: a way to efficiently save wallets .ie something like write only part which aren't already in the file
+///save wallets to `wallet_path` field
 fn saveWallets(self: Wallets) void {
-    const file = std.fs.cwd().openFile(WALLET_DATA, .{ .mode = .write_only }) catch |err| switch (err) {
-        error.FileNotFound => std.fs.cwd().createFile(WALLET_DATA, .{}) catch |create_err| {
-            std.log.err("{s}", .{@errorName(create_err)});
-            std.process.exit(3);
-        },
-        else => {
-            std.log.err("{s}", .{@errorName(err)});
-            std.process.exit(3);
-        },
+    const file = std.fs.cwd().openFile(self.wallet_path, .{ .mode = .write_only }) catch |err| switch (err) {
+        error.FileNotFound => std.fs.cwd().createFile(self.wallet_path, .{}) catch unreachable,
+        else => unreachable,
     };
     defer file.close();
 

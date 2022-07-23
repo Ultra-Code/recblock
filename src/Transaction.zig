@@ -64,9 +64,9 @@ pub const SUBSIDY = 10;
 
 //A coinbase transaction is a special type of transactions, which doesn’t require previously existing outputs.
 //This is the reward miners get for mining new blocks.
-pub fn initCoinBaseTx(arena: Allocator, to: Wallets.Address) Transaction {
+pub fn initCoinBaseTx(arena: Allocator, to: Wallets.Address, wallet_path: []const u8) Transaction {
     var inlist = InList{};
-    const wallets = Wallets.getWallets(arena);
+    const wallets = Wallets.getWallets(arena, wallet_path);
     const tos_wallet = wallets.getWallet(to);
     inlist.append(
         arena,
@@ -176,16 +176,24 @@ pub fn newTx(input: InList, output: OutList) Transaction {
 }
 
 pub fn isCoinBaseTx(self: Transaction) bool {
-    return self.tx_in.items.len == 1 and self.tx_in.items[0].out_id.len == 0 and self.tx_in.items[0].out_index == std.math.maxInt(usize);
+    return self.tx_in.items.len == 1 and self.tx_in.items[0].out_index == std.math.maxInt(usize) and
+        std.mem.eql(u8, self.tx_in.items[0].out_id[0..], zeroes(TxID)[0..]);
 }
 
 test "isCoinBaseTx" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
     const gpa = std.testing.allocator;
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var coinbase = initCoinBaseTx(allocator, "testing");
+    const wallet_path = try std.fmt.allocPrint(allocator, "zig-cache/tmp/{s}/wallet.dat", .{tmp.sub_path[0..]});
+    var wallets = Wallets.initWallets(allocator, wallet_path);
+    const test_coinbase = wallets.createWallet();
+
+    var coinbase = initCoinBaseTx(allocator, test_coinbase, wallets.wallet_path);
     try std.testing.expect(isCoinBaseTx(coinbase));
 }
 
