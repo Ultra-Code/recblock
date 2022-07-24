@@ -180,6 +180,18 @@ pub fn isCoinBaseTx(self: Transaction) bool {
         std.mem.eql(u8, self.tx_in.items[0].out_id[0..], zeroes(TxID)[0..]);
 }
 
+///set Id of transaction
+fn setId(self: *Transaction) void {
+    var buf: [4096]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buf);
+
+    const serialized_data = serializer.serializeAlloc(fba.allocator(), self);
+
+    var hash: [Blake3.digest_length]u8 = undefined;
+    Blake3.hash(serialized_data[0..], &hash, .{});
+    self.id = hash;
+}
+
 test "isCoinBaseTx" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -195,16 +207,4 @@ test "isCoinBaseTx" {
 
     var coinbase = initCoinBaseTx(allocator, test_coinbase, wallets.wallet_path);
     try std.testing.expect(isCoinBaseTx(coinbase));
-}
-
-///set Id of transaction
-fn setId(self: *Transaction) void {
-    var buf: [4096]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buf);
-
-    const serialized_data = serializer.serializeAlloc(fba.allocator(), self);
-
-    var hash: [Blake3.digest_length]u8 = undefined;
-    Blake3.hash(serialized_data[0..], &hash, .{});
-    self.id = hash;
 }

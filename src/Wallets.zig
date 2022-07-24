@@ -117,7 +117,6 @@ pub const Wallet = struct {
         return .{ .wallet_keys = Ed25519.KeyPair.create(null) catch unreachable };
     }
 
-    //TODO: return a array of known size
     pub fn address(self: Wallet) Address {
         const pub_key_hash = hashPubKey(self.wallet_keys.public_key);
 
@@ -142,7 +141,7 @@ pub const Wallet = struct {
         return dest_buf;
     }
 
-    pub fn decodeBase64(wallet_address: Address) RawAddress {
+    fn decodeBase64(wallet_address: Address) RawAddress {
         var buf: [100]u8 = undefined;
         const decoder = base64.Base64Decoder.init(base64.url_safe_alphabet_chars, null);
         var decoded_buf = buf[0 .. decoder.calcSizeForSlice(wallet_address[0..]) catch unreachable];
@@ -153,7 +152,7 @@ pub const Wallet = struct {
     pub fn getPubKeyHash(wallet_address: Address) PublicKeyHash {
         const decoded_address = decodeBase64(wallet_address);
 
-        return (decoded_address[1 .. PUB_KEY_HASH_LEN + 1]).*;
+        return (decoded_address[VERSION_LEN .. PUB_KEY_HASH_LEN + 1]).*;
     }
 
     fn version(pub_key_hash: PublicKeyHash) VersionedHash {
@@ -195,9 +194,26 @@ fn encodedAddressLenght() usize {
     return encoder.calcSize(VERSION_LEN + PUB_KEY_HASH_LEN + ADDR_CKSUM_LEN);
 }
 
-//TODO: verify if the an encoded address of lenght decodes to a differenct lenght
-//TODO: find out how to access arguments in return channels
-fn decodedAddressLenght(wallet_address: Address) usize {
-    const decoder = base64.Base64Decoder.init(base64.url_safe_alphabet_chars, null);
-    return decoder.calcSizeForSlice(wallet_address[0..]) catch unreachable;
+test "Wallet.address,Wallet.getPubKeyHash" {
+    var seed: [32]u8 = undefined;
+    _ = try std.fmt.hexToBytes(seed[0..], "8052030376d47112be7f73ed7a019293dd12ad910b654455798b4667d73de166");
+    const key_pair = try Ed25519.KeyPair.create(seed);
+
+    var secret_key: [64]u8 = undefined;
+    const secret_key_hex = "8052030376D47112BE7F73ED7A019293DD12AD910B654455798B4667D73DE1662D6F7455D97B4A3A10D7293909D1A4F2058CB9A370E43FA8154BB280DB839083";
+    _ = try std.fmt.hexToBytes(&secret_key, secret_key_hex);
+
+    var public_key: [32]u8 = undefined;
+    const public_key_hex = "2D6F7455D97B4A3A10D7293909D1A4F2058CB9A370E43FA8154BB280DB839083";
+    _ = try std.fmt.hexToBytes(&public_key, public_key_hex);
+
+    var expected_address: [34]u8 = undefined;
+    const expected_address_hex = "416430745F41506746466E4B684967655739423938752D41554E6A557A6439766467";
+    _ = try std.fmt.hexToBytes(&expected_address, expected_address_hex);
+
+    const actual_address = Wallet.address(.{ .wallet_keys = .{ .secret_key = key_pair.secret_key, .public_key = key_pair.public_key } });
+
+    try std.testing.expectEqualStrings(expected_address[0..], actual_address[0..]);
+
+    try std.testing.expectEqualStrings(Wallet.decodeBase64(expected_address)[VERSION_LEN .. PUB_KEY_HASH_LEN + 1], Wallet.getPubKeyHash(expected_address)[0..]);
 }
