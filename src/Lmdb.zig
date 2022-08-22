@@ -14,7 +14,7 @@ const err = std.os.E;
 pub const Lmdb = @This();
 
 const serializer = @import("serializer.zig");
-const BLOCK_DB = @import("./utils.zig").BLOCK_DB;
+const BLOCK_DB = @import("utils.zig").BLOCK_DB;
 
 const Env = mdb.MDB_env;
 const Key = mdb.MDB_val;

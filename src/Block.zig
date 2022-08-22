@@ -138,7 +138,7 @@ test "newBlock" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const Wallets = @import("./Wallets.zig").Wallets;
+    const Wallets = @import("Wallets.zig").Wallets;
     const wallet_path = try std.fmt.allocPrint(allocator, "zig-cache/tmp/{s}/wallet.dat", .{tmp.sub_path[0..]});
 
     var wallets = Wallets.initWallets(allocator, wallet_path);

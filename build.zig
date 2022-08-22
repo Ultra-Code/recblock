@@ -43,8 +43,6 @@ pub fn build(b: *std.build.Builder) void {
     switch (mode) {
         .Debug => {},
         .ReleaseSafe, .ReleaseFast, .ReleaseSmall => {
-            //use stage2 when building for release mode
-            b.use_stage1 = false;
             lmdb.link_function_sections = true;
             lmdb.omit_frame_pointer = true;
             lmdb.red_zone = true;

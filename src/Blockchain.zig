@@ -9,12 +9,12 @@ const assert = std.debug.assert;
 
 const BlockChain = @This();
 
-const Transaction = @import("./Transaction.zig");
-const Block = @import("./Block.zig");
-const Lmdb = @import("./Lmdb.zig");
-const Iterator = @import("./Iterator.zig");
-const Wallets = @import("./Wallets.zig");
-const utils = @import("./utils.zig");
+const Transaction = @import("Transaction.zig");
+const Block = @import("Block.zig");
+const Lmdb = @import("Lmdb.zig");
+const Iterator = @import("Iterator.zig");
+const Wallets = @import("Wallets.zig");
+const utils = @import("utils.zig");
 
 const Wallet = Wallets.Wallet;
 const Address = Wallets.Address;
@@ -48,6 +48,10 @@ pub fn getChain(db: Lmdb, arena: std.mem.Allocator) BlockChain {
 
 ///create a new BlockChain
 pub fn newChain(db: Lmdb, arena: std.mem.Allocator, address: Wallets.Address, wallet_path: []const u8) BlockChain {
+    if (!Wallet.validateAddress(address)) {
+        std.log.err("blockchain address {s} is invalid", .{address});
+        std.process.exit(4);
+    }
     var buf: [1024 * 6]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&buf);
     const allocator = fba.allocator();
@@ -106,7 +110,7 @@ fn findUTxs(bc: BlockChain, pub_key_hash: Wallets.PublicKeyHash) []const Transac
     //TODO: find a way to cap the max stack usage
     //INITIA_IDEA: copy relevant data and free blocks
     var buf: [1024 * 950]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buf);
+    var fba = std.heap.FixedBufferAllocator.init(buf[0..]);
     const allocator = fba.allocator();
 
     var unspent_txos = std.ArrayList(Transaction).init(bc.arena);
@@ -289,6 +293,10 @@ fn verifyTx(self: BlockChain, tx: Transaction) bool {
 }
 
 pub fn getBalance(self: BlockChain, address: Wallets.Address) usize {
+    if (!Wallet.validateAddress(address)) {
+        std.log.err("address {s} is invalid", .{address});
+        std.process.exit(4);
+    }
     var balance: usize = 0;
     const utxos = self.findUTxOs(Wallet.getPubKeyHash(address));
 
@@ -299,6 +307,14 @@ pub fn getBalance(self: BlockChain, address: Wallets.Address) usize {
 }
 
 pub fn sendValue(self: *BlockChain, amount: usize, from: Wallets.Address, to: Wallets.Address) void {
+    if (!Wallet.validateAddress(from)) {
+        std.log.err("sender address {s} is invalid", .{from});
+        std.process.exit(4);
+    }
+    if (!Wallet.validateAddress(to)) {
+        std.log.err("recipient address {s} is invalid", .{to});
+        std.process.exit(4);
+    }
     var new_transaction = self.newUTx(amount, from, to);
 
     self.mineBlock(&.{new_transaction});

@@ -2,13 +2,13 @@ const std = @import("std");
 const zeroes = std.mem.zeroes;
 const Allocator = std.mem.Allocator;
 const Blake3 = std.crypto.hash.Blake3;
-const Wallets = @import("./Wallets.zig");
+const Wallets = @import("Wallets.zig");
 const Wallet = Wallets.Wallet;
 pub const TxID = [Blake3.digest_length]u8;
 ///previous transaction which are found to contain a specified TxID
 pub const PrevTxMap = std.AutoArrayHashMap(TxID, Transaction);
 
-const serializer = @import("./serializer.zig");
+const serializer = @import("serializer.zig");
 
 //Transactions just lock values with a script, which can be unlocked only by the one who locked them.
 const Transaction = @This();

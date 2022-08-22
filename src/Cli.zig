@@ -1,8 +1,8 @@
 const std = @import("std");
-const BlockChain = @import("./Blockchain.zig");
-const Wallets = @import("./Wallets.zig");
-const Iterator = @import("./Iterator.zig");
-const Lmdb = @import("./Lmdb.zig");
+const BlockChain = @import("Blockchain.zig");
+const Wallets = @import("Wallets.zig");
+const Iterator = @import("Iterator.zig");
+const Lmdb = @import("Lmdb.zig");
 const WALLET_STORAGE = "db/wallet.dat";
 
 const Cli = @This();
@@ -102,6 +102,13 @@ pub fn run(self: Cli) void {
             const wallets = Wallets.initWallets(self.arena, WALLET_STORAGE);
             const wallet_address = wallets.createWallet();
             std.debug.print("Your new address is '{[address]s}'\n", .{ .address = wallet_address });
+        } else if (std.mem.eql(u8, argv, "listaddress")) {
+            const wallets = Wallets.getWallets(self.arena, WALLET_STORAGE);
+            const address_list = wallets.getAddresses();
+
+            for (address_list) |address, index| {
+                std.log.info("address {}\n{s}\n", .{ index, address });
+            }
         }
     }
 }

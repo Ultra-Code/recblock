@@ -58,6 +58,11 @@ pub fn getWallets(arena: std.mem.Allocator, wallet_path: []const u8) Wallets {
     wallets.loadWallets();
     return wallets;
 }
+
+pub fn getAddresses(wallets: Wallets) []Address {
+    return wallets.wallets.keys();
+}
+
 ///get the wallet associated with this address
 pub fn getWallet(self: Wallets, address: Address) Wallet {
     return self.wallets.get(address).?;
@@ -120,11 +125,24 @@ pub const Wallet = struct {
     pub fn address(self: Wallet) Address {
         const pub_key_hash = hashPubKey(self.wallet_keys.public_key);
 
-        const versioned_payload = version(pub_key_hash);
+        const versioned_payload = version(VERSION, pub_key_hash);
 
         const checksum_payload = checksum(versioned_payload);
 
         return encodeBase64(versioned_payload, checksum_payload);
+    }
+
+    ///check and make sure `wallet_address` is a valid wallet address
+    pub fn validateAddress(wallet_address: Address) bool {
+        const decoded_address = decodeBase64(wallet_address);
+        const decoded_version = decoded_address[0];
+        const decoded_pub_key_hash = decoded_address[VERSION_LEN .. PUB_KEY_HASH_LEN + 1].*;
+        const cksum_start = VERSION_LEN + PUB_KEY_HASH_LEN;
+        const actual_cksum = decoded_address[cksum_start..].*;
+
+        const target_chksum = checksum(version(decoded_version, decoded_pub_key_hash));
+
+        return std.mem.eql(u8, actual_cksum[0..], target_chksum[0..]);
     }
 
     //use base64 instead of bitcoins base58 for encoding address payload
@@ -155,11 +173,11 @@ pub const Wallet = struct {
         return (decoded_address[VERSION_LEN .. PUB_KEY_HASH_LEN + 1]).*;
     }
 
-    fn version(pub_key_hash: PublicKeyHash) VersionedHash {
+    fn version(wallet_version: u8, pub_key_hash: PublicKeyHash) VersionedHash {
         var versioned_payload_buf: VersionedHash = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&versioned_payload_buf);
 
-        _ = std.mem.concat(fba.allocator(), u8, &.{ &.{VERSION}, pub_key_hash[0..] }) catch unreachable;
+        _ = std.mem.concat(fba.allocator(), u8, &.{ &.{wallet_version}, pub_key_hash[0..] }) catch unreachable;
         return versioned_payload_buf;
     }
 
