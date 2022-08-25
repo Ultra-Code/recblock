@@ -3,29 +3,29 @@ Blockchain for a record management and money transfer system
 
 ## Build package native
 ```zsh
-zig build
+$ zig build
 ```
 
 ## Build for windows on linux
 ```zsh
-zig build -Dtarget=-Dtarget=x86_64-windows-gnu`
+$ zig build -Dtarget=-Dtarget=x86_64-windows-gnu
 ```
 
 ## Build for linux static
 ```zsh
-zig build -Dtarget=x86_64-linux-musl
+$ zig build -Dtarget=x86_64-linux-musl
 ```
 
 ## Build in release mode
 ```zsh
-zig build -Drelease-fast
+$ zig build -Drelease-fast
 ```
 
 ## HOW TO USE PROGRAM
 
 ### create a wallet
 ```zsh
-zig build run -- createwallet
+$ zig build run -- createwallet
 
 #.eg. to create two new wallets
 # Assan's wallet
@@ -39,7 +39,7 @@ Your new address is 'AZqc8JTbSu1xMQQD2TcVRZnj5oji5oIOLQ'
 ### create a chain
 ```zsh
 # create a blockchain at Gaddy's wallet
-zig-dev build run -- createchain AZqc8JTbSu1xMQQD2TcVRZnj5oji5oIOLQ
+$ zig-dev build run -- createchain AZqc8JTbSu1xMQQD2TcVRZnj5oji5oIOLQ
 
 #.eg output
 $ zig-dev build run -- createchain AZqc8JTbSu1xMQQD2TcVRZnj5oji5oIOLQ
@@ -50,7 +50,7 @@ info: You get a reward of RBC 10 for mining the coinbase transaction
 
 ### get balance
 ```zsh
-zig-dev build run -- getbalance AZqc8JTbSu1xMQQD2TcVRZnj5oji5oIOLQ
+$ zig-dev build run -- getbalance AZqc8JTbSu1xMQQD2TcVRZnj5oji5oIOLQ
 
 # get Gaddy's balance
 $ zig-dev build run -- getbalance AZqc8JTbSu1xMQQD2TcVRZnj5oji5oIOLQ
@@ -63,7 +63,7 @@ $ zig-dev build run -- getbalance AY0IZ21T7XFFEPwoiVxAbnYMxuZNshdRzg
 
 ### send RBC to another Address
 ```zsh
-zig-dev build run -- send --amount 7 --from AZqc8JTbSu1xMQQD2TcVRZnj5oji5oIOLQ --to AY0IZ21T7XFFEPwoiVxAbnYMxuZNshdRzg
+$ zig-dev build run -- send --amount 7 --from AZqc8JTbSu1xMQQD2TcVRZnj5oji5oIOLQ --to AY0IZ21T7XFFEPwoiVxAbnYMxuZNshdRzg
 
 # send RBC 7 from Gaddy's wallet to Assan's wallet
 $ zig-dev build run -- send --amount 7 --from AZqc8JTbSu1xMQQD2TcVRZnj5oji5oIOLQ --to AY0IZ21T7XFFEPwoiVxAbnYMxuZNshdRzg
@@ -74,7 +74,7 @@ done sending RBC 7 from 'AZqc8JTbSu1xMQQD2TcVRZnj5oji5oIOLQ' to 'AY0IZ21T7XFFEPw
 
 ### print the blockchain ledger after performing some transactions
 ```zsh
-zig build run -- printchain
+$ zig build run -- printchain
 
 # eg
 $ zig build run -- printchain
@@ -111,4 +111,18 @@ info: POW: true
 
 
 info: done
+```
+
+### print the list of valid addresses for transactions
+```zsh
+$ zig build run -- listaddress
+
+info: address 0
+Acj4k6QpclfGwTB625MOUnS_0ob7B6xumg
+
+info: address 1
+ATM0mGFtqU0lsUafDFKgBSWARA6bBrPClA
+
+info: address 2
+AT_YZ3gWStL1bVZtFVbd4pkxjcqul9gX3g
 ```
