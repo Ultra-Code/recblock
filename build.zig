@@ -22,10 +22,12 @@ pub fn build(b: *std.build.Builder) void {
     const mode = b.standardReleaseOptions();
 
     //Add lmdb library for embeded key/value store
+    const cflags = [_][]const u8{ "-pthread", "-std=c2x" };
+    const lmdb_sources = [_][]const u8{ LMDB_PATH ++ "mdb.c", LMDB_PATH ++ "midl.c" };
     const lmdb = b.addStaticLibrary("lmdb", null);
     lmdb.setTarget(target);
     lmdb.setBuildMode(mode);
-    lmdb.addCSourceFiles(&.{ LMDB_PATH ++ "mdb.c", LMDB_PATH ++ "midl.c" }, &.{ "-pthread", "-std=c2x" });
+    lmdb.addCSourceFiles(&lmdb_sources, &cflags);
     lmdb.linkLibC();
     lmdb.install();
 
@@ -42,21 +44,18 @@ pub fn build(b: *std.build.Builder) void {
 
     switch (mode) {
         .Debug => {},
-        .ReleaseSafe, .ReleaseFast, .ReleaseSmall => {
+        else => {
             lmdb.link_function_sections = true;
-            lmdb.omit_frame_pointer = true;
             lmdb.red_zone = true;
+            lmdb.want_lto = true;
 
             exe.link_function_sections = true;
-            exe.omit_frame_pointer = true;
             exe.red_zone = true;
-            //FIXME: cross compiling for windows with strip and lto run into issues
+            exe.want_lto = true;
+            //FIXME: cross compiling for windows with strip run into issues
             //Wait for self-hosting and if problem still persist,open an issue to track this
             if (!target.isWindows()) {
-                lmdb.want_lto = true;
                 lmdb.strip = true;
-
-                exe.want_lto = true;
                 exe.strip = true;
             }
         },
