@@ -10,6 +10,10 @@ pub const PrevTxMap = std.AutoArrayHashMap(TxID, Transaction);
 
 const serializer = @import("serializer.zig");
 
+//CHECKOUT: https://arxiv.org/abs/1806.06738 The Evolution of Embedding Metadata in Blockchain Transactions
+//by Tooba Faisal, Nicolas Courtois, Antoaneta Serguieva
+//USE_AS: further extension to this blockchain to improve anonymity and security even futher
+
 //Transactions just lock values with a script, which can be unlocked only by the one who locked them.
 const Transaction = @This();
 const InList = std.ArrayListUnmanaged(TxInput);

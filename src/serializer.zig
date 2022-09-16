@@ -5,7 +5,7 @@ pub const HASH_SIZE = 8; //size of std.hash.Fnv1a_64 is 64bit which is 8 byte
 
 ///caller must free the returned slice
 ///it is recommend you use either a fixedBufferAllocator or AreanAllocator
-pub fn serializeAlloc(allocator: std.mem.Allocator, data: anytype) []u8 {
+pub fn serializeAlloc(allocator: std.mem.Allocator, data: anytype) []const u8 {
     var list_stream = std.ArrayList(u8).init(allocator);
     s2s.serialize(list_stream.writer(), @TypeOf(data), data) catch unreachable;
     return list_stream.items;
@@ -20,7 +20,7 @@ pub fn serialize(data: anytype) [HASH_SIZE + @sizeOf(@TypeOf(data))]u8 {
     return serialized_data;
 }
 
-fn getRawBytes(data: ?*anyopaque, start: usize, size: usize) []u8 {
+fn getRawBytes(data: ?*anyopaque, start: usize, size: usize) []const u8 {
     return @ptrCast([*]u8, data.?)[start..size];
 }
 

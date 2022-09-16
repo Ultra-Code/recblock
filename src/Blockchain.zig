@@ -307,6 +307,9 @@ pub fn getBalance(self: BlockChain, address: Wallets.Address) usize {
 }
 
 pub fn sendValue(self: *BlockChain, amount: usize, from: Wallets.Address, to: Wallets.Address) void {
+    assert(amount > 0);
+    assert(!std.mem.eql(u8, &from, &to));
+
     if (!Wallet.validateAddress(from)) {
         std.log.err("sender address {s} is invalid", .{from});
         std.process.exit(4);

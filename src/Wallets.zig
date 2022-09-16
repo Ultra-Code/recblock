@@ -59,7 +59,7 @@ pub fn getWallets(arena: std.mem.Allocator, wallet_path: []const u8) Wallets {
     return wallets;
 }
 
-pub fn getAddresses(wallets: Wallets) []Address {
+pub fn getAddresses(wallets: Wallets) []const Address {
     return wallets.wallets.keys();
 }
 
