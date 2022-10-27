@@ -11,7 +11,10 @@ const pkgs = struct {
 const LMDB_PATH = "./deps/lmdb/libraries/liblmdb/";
 
 pub fn build(b: *std.build.Builder) void {
-    // Standard target options allows the person running `zig build` to choose
+    comptime {
+        //Big endian systems not currently supported
+        std.debug.assert(builtin.target.cpu.arch.endian() == .Little);
+    }
     // what target to build for. Here we do not override the defaults, which
     // means any target is allowed, and the default is native. Other options
     // for restricting supported target set are available.
@@ -41,10 +44,10 @@ pub fn build(b: *std.build.Builder) void {
     exe.linkLibrary(lmdb);
     exe.addIncludePath(LMDB_PATH);
     exe.install();
+    exe.stack_size = 1024 * 1024 * 64;
 
     switch (mode) {
-        .Debug => {},
-        else => {
+        .ReleaseFast => {
             lmdb.link_function_sections = true;
             lmdb.red_zone = true;
             lmdb.want_lto = true;
@@ -59,6 +62,7 @@ pub fn build(b: *std.build.Builder) void {
                 exe.strip = true;
             }
         },
+        else => {},
     }
     const run_cmd = exe.run();
     run_cmd.step.dependOn(b.getInstallStep());
