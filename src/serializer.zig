@@ -20,15 +20,16 @@ pub fn serialize(data: anytype) [HASH_SIZE + @sizeOf(@TypeOf(data))]u8 {
     return serialized_data;
 }
 
-fn getRawBytes(data: ?*anyopaque, start: usize, size: usize) []const u8 {
-    return @ptrCast([*]u8, data.?)[start..size];
+/// get bytes starting from `0` to `len`
+pub fn getRawBytes(data: ?*anyopaque, len: usize) []const u8 {
+    return @ptrCast([*]const u8, data.?)[0..len];
 }
 
 ///deserialize bytes representing data as `T`
 ///use when no allocation is required .ie data doesn't contain ptr or slice
-pub fn deserialize(comptime T: type, data: ?*anyopaque, size: usize) T {
+pub fn deserialize(comptime T: type, data: ?*anyopaque, len: usize) T {
     // return std.mem.bytesAsSlice(T, getBytes(data.?, size))[0];
-    const serialized_data = getRawBytes(data, 0, size);
+    const serialized_data = getRawBytes(data, len);
 
     var fbr = std.io.fixedBufferStream(serialized_data);
     fbr.seekTo(0) catch unreachable;
@@ -39,9 +40,9 @@ pub fn deserialize(comptime T: type, data: ?*anyopaque, size: usize) T {
 
 ///deserialize types with require allocation
 ///recommend you use a `fixedBufferAllocator`
-pub fn deserializeAlloc(comptime T: type, fballocator: std.mem.Allocator, data: ?*anyopaque, size: usize) T {
+pub fn deserializeAlloc(comptime T: type, fballocator: std.mem.Allocator, data: ?*anyopaque, len: usize) T {
     // return std.mem.bytesAsSlice(T, getBytes(data.?, size))[0];
-    const serialized_data = getRawBytes(data, 0, size);
+    const serialized_data = getRawBytes(data, len);
 
     var fbr = std.io.fixedBufferStream(serialized_data);
     fbr.seekTo(0) catch unreachable;

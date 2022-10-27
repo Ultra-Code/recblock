@@ -23,11 +23,16 @@ const BLOCK_DB = utils.BLOCK_DB;
 const WALLET = "wallet.dat";
 const LAST = utils.LAST;
 const OutputIndex = usize;
-const TxMap = std.AutoHashMap(Transaction.TxID, OutputIndex);
+pub const TxMap = std.AutoHashMap(Transaction.TxID, OutputIndex);
+pub const Hash = [Blake3.digest_length]u8;
+
+pub const BLOCK_DB = "blocks";
+pub const LAST = "last";
+pub const WALLET_STORAGE = "db/wallet.dat";
 
 //READ: https://en.bitcoin.it/wiki/Block_hashing_algorithm https://en.bitcoin.it/wiki/Proof_of_work https://en.bitcoin.it/wiki/Hashcash
 
-last_hash: [Blake3.digest_length]u8,
+last_hash: Hash,
 db: Lmdb,
 arena: std.mem.Allocator,
 wallet_path: []const u8,
@@ -37,9 +42,8 @@ pub fn getChain(db: Lmdb, arena: std.mem.Allocator) BlockChain {
     const txn = db.startTxn(.rw, BLOCK_DB);
     defer txn.commitTxns();
 
-    if (txn.get([Blake3.digest_length]u8, LAST)) |last_block_hash| {
-        const wallet_path = txn.getAlloc([]const u8, arena, WALLET) catch unreachable;
-        return .{ .last_hash = last_block_hash, .db = db, .arena = arena, .wallet_path = wallet_path };
+    if (txn.get(Hash, LAST)) |last_block_hash| {
+        return .{ .last_hash = last_block_hash, .db = db, .arena = arena };
     } else |_| {
         std.log.err("create a blockchain with creatchain command before using any other command", .{});
         std.process.exit(1);
@@ -47,7 +51,7 @@ pub fn getChain(db: Lmdb, arena: std.mem.Allocator) BlockChain {
 }
 
 ///create a new BlockChain
-pub fn newChain(db: Lmdb, arena: std.mem.Allocator, address: Wallets.Address, wallet_path: []const u8) BlockChain {
+pub fn newChain(db: Lmdb, arena: std.mem.Allocator, address: Wallets.Address) BlockChain {
     if (!Wallet.validateAddress(address)) {
         std.log.err("blockchain address {s} is invalid", .{address});
         std.process.exit(4);
@@ -56,7 +60,7 @@ pub fn newChain(db: Lmdb, arena: std.mem.Allocator, address: Wallets.Address, wa
     var fba = std.heap.FixedBufferAllocator.init(&buf);
     const allocator = fba.allocator();
 
-    const coinbase_tx = Transaction.initCoinBaseTx(allocator, address, wallet_path);
+    const coinbase_tx = Transaction.initCoinBaseTx(allocator, address, WALLET_STORAGE);
     const genesis_block = Block.genesisBlock(allocator, coinbase_tx);
 
     const txn = db.startTxn(.rw, BLOCK_DB);
@@ -78,11 +82,11 @@ pub fn newChain(db: Lmdb, arena: std.mem.Allocator, address: Wallets.Address, wa
     });
     info("You get a reward of RBC {d} for mining the coinbase transaction", .{Transaction.SUBSIDY});
 
-    return .{ .last_hash = genesis_block.hash, .db = db, .arena = arena, .wallet_path = wallet_path };
+    return .{ .last_hash = genesis_block.hash, .db = db, .arena = arena };
 }
 
 ///add a new Block to the BlockChain
-pub fn mineBlock(bc: *BlockChain, transactions: []const Transaction) void {
+pub fn mineBlock(bc: *BlockChain, transactions: []const Transaction) Block {
     for (transactions) |tx| {
         assert(bc.verifyTx(tx) == true);
     }
@@ -91,7 +95,7 @@ pub fn mineBlock(bc: *BlockChain, transactions: []const Transaction) void {
     var fba = std.heap.FixedBufferAllocator.init(&buf);
     const allocator = fba.allocator();
 
-    const new_block = Block.newBlock(allocator, bc.last_hash, transactions);
+    const new_block = Block.newBlock(bc.arena, bc.last_hash, transactions);
     std.log.info("new transaction is '{X}'", .{fh(fmtHash(new_block.hash)[0..])});
 
     assert(new_block.validate() == true);
@@ -102,6 +106,8 @@ pub fn mineBlock(bc: *BlockChain, transactions: []const Transaction) void {
     txn.putAlloc(allocator, new_block.hash[0..], new_block) catch unreachable;
     txn.update(LAST, new_block.hash) catch unreachable;
     bc.last_hash = new_block.hash;
+
+    return new_block;
 }
 
 ///find unspent transactions
@@ -188,7 +194,7 @@ fn newUTx(self: BlockChain, amount: usize, from: Wallets.Address, to: Wallets.Ad
     //Build a list of inputs
     //for each found output an input referencing it is created.
     var itr = unspent_output.iterator();
-    const wallets = Wallets.getWallets(self.arena, self.wallet_path);
+    const wallets = Wallets.getWallets(self.arena, WALLET_STORAGE);
     const froms_wallet = wallets.getWallet(from);
 
     while (itr.next()) |kv| {
@@ -266,6 +272,9 @@ fn findTx(self: BlockChain, tx_id: Transaction.TxID) Transaction {
 
 ///take a transaction `tx` finds all previous transactions it references and sign it with KeyPair `wallet_keys`
 fn signTx(self: BlockChain, tx: *Transaction, wallet_keys: Wallet.KeyPair) void {
+    //Coinbase transactions are not signed because they don't contain real inputs
+    if (tx.isCoinBaseTx()) return;
+
     var buf: [1024 * 1024]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&buf);
 
@@ -280,6 +289,9 @@ fn signTx(self: BlockChain, tx: *Transaction, wallet_keys: Wallet.KeyPair) void 
 
 ///take a transaction `tx` finds transactions it references and verify it
 fn verifyTx(self: BlockChain, tx: Transaction) bool {
+    if (tx.isCoinBaseTx()) {
+        return true;
+    }
     var buf: [1024 * 1024]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&buf);
 

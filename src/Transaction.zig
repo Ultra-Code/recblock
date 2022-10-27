@@ -68,10 +68,10 @@ pub const SUBSIDY = 10;
 
 //A coinbase transaction is a special type of transactions, which doesn’t require previously existing outputs.
 //This is the reward miners get for mining new blocks.
-pub fn initCoinBaseTx(arena: Allocator, to: Wallets.Address, wallet_path: []const u8) Transaction {
+pub fn initCoinBaseTx(arena: Allocator, miners_address: Wallets.Address, wallet_path: []const u8) Transaction {
     var inlist = InList{};
     const wallets = Wallets.getWallets(arena, wallet_path);
-    const tos_wallet = wallets.getWallet(to);
+    const tos_wallet = wallets.getWallet(miners_address);
     inlist.append(
         arena,
         TxInput{
@@ -83,7 +83,7 @@ pub fn initCoinBaseTx(arena: Allocator, to: Wallets.Address, wallet_path: []cons
     ) catch unreachable;
 
     var outlist = OutList{};
-    outlist.append(arena, TxOutput{ .value = SUBSIDY, .pub_key_hash = Wallet.getPubKeyHash(to) }) catch unreachable;
+    outlist.append(arena, TxOutput{ .value = SUBSIDY, .pub_key_hash = Wallet.getPubKeyHash(miners_address) }) catch unreachable;
 
     var tx = Transaction{ .id = undefined, .tx_in = inlist, .tx_out = outlist };
     tx.setId();
@@ -101,9 +101,6 @@ pub fn initCoinBaseTx(arena: Allocator, to: Wallets.Address, wallet_path: []cons
 ///in order to sign a transaction, we need to access the outputs referenced in the inputs of the transaction , thus
 ///we need the transactions that store these outputs. `prev_txs`
 pub fn sign(self: *Transaction, wallet_keys: Wallet.KeyPair, prev_txs: PrevTxMap, fba: Allocator) void {
-    //Coinbase transactions are not signed because they don't contain real inputs
-    if (self.isCoinBaseTx()) return;
-
     //A trimmed copy will be signed, not a full transaction:
     //The copy will include all the inputs and outputs, but TxInput.sig and TxInput.pub_key are empty
     var trimmed_tx_copy = self.trimmedCopy(fba);
@@ -144,7 +141,7 @@ pub fn verify(self: Transaction, prev_txs: PrevTxMap, fba: Allocator) bool {
 
         if (Wallets.Ed25519.verify(value_in.sig, trimmed_tx_copy.id[0..], value_in.pub_key)) |_| {} else |err| {
             std.log.info("public key has a value of {}", .{value_in});
-            std.log.err("{s} occured while verifying the transaction", .{@errorName(err)});
+            std.log.err("{s} occurred while verifying the transaction", .{@errorName(err)});
             return false;
         }
     }
