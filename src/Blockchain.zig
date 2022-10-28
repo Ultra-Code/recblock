@@ -18,10 +18,10 @@ const utils = @import("utils.zig");
 
 const Wallet = Wallets.Wallet;
 const Address = Wallets.Address;
+const BlockIterator = Iterator.BlockIterator;
 const fmtHash = utils.fmtHash;
-const BLOCK_DB = utils.BLOCK_DB;
-const WALLET = "wallet.dat";
-const LAST = utils.LAST;
+const ExitCodes = utils.ExitCodes;
+
 const OutputIndex = usize;
 pub const TxMap = std.AutoHashMap(Transaction.TxID, OutputIndex);
 pub const Hash = [Blake3.digest_length]u8;
@@ -46,7 +46,7 @@ pub fn getChain(db: Lmdb, arena: std.mem.Allocator) BlockChain {
         return .{ .last_hash = last_block_hash, .db = db, .arena = arena };
     } else |_| {
         std.log.err("create a blockchain with creatchain command before using any other command", .{});
-        std.process.exit(1);
+        std.process.exit(@enumToInt(ExitCodes.blockchain_not_found));
     }
 }
 
@@ -54,7 +54,7 @@ pub fn getChain(db: Lmdb, arena: std.mem.Allocator) BlockChain {
 pub fn newChain(db: Lmdb, arena: std.mem.Allocator, address: Wallets.Address) BlockChain {
     if (!Wallet.validateAddress(address)) {
         std.log.err("blockchain address {s} is invalid", .{address});
-        std.process.exit(4);
+        std.process.exit(@enumToInt(ExitCodes.invalid_wallet_address));
     }
     var buf: [1024 * 6]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&buf);
@@ -68,8 +68,10 @@ pub fn newChain(db: Lmdb, arena: std.mem.Allocator, address: Wallets.Address) Bl
 
     txn.put(LAST, genesis_block.hash) catch |newchain_err| switch (newchain_err) {
         error.KeyAlreadyExist => {
-            std.log.err("Attempting to create new chain at an address '{s}' which already contains a chain", .{address});
-            std.process.exit(1);
+            std.log.err("Attempting to create a new blockchain at address '{s}' while a blockchain already exist", .{
+                address,
+            });
+            std.process.exit(@enumToInt(ExitCodes.blockchain_already_exist));
         },
         else => unreachable,
     };
@@ -188,7 +190,7 @@ fn newUTx(self: BlockChain, amount: usize, from: Wallets.Address, to: Wallets.Ad
 
     if (accumulated_amount < amount) {
         std.log.err("not enough funds to transfer RBC {d} from '{s}' to '{s}'", .{ amount, from, to });
-        std.process.exit(2);
+        std.process.exit(@enumToInt(ExitCodes.insufficient_wallet_balance));
     }
 
     //Build a list of inputs
@@ -324,11 +326,11 @@ pub fn sendValue(self: *BlockChain, amount: usize, from: Wallets.Address, to: Wa
 
     if (!Wallet.validateAddress(from)) {
         std.log.err("sender address {s} is invalid", .{from});
-        std.process.exit(4);
+        std.process.exit(@enumToInt(ExitCodes.invalid_wallet_address));
     }
     if (!Wallet.validateAddress(to)) {
         std.log.err("recipient address {s} is invalid", .{to});
-        std.process.exit(4);
+        std.process.exit(@enumToInt(ExitCodes.invalid_wallet_address));
     }
     var new_transaction = self.newUTx(amount, from, to);
 

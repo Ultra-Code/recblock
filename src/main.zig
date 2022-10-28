@@ -9,6 +9,10 @@ const gpa = if (builtin.link_libc and builtin.mode != .Debug)
 else
     default_allocator.allocator();
 
+// TODO: improve memory usage and recycling at appropiate places.
+// set buffers in local scope based on the sizeof the struct or types stored or allocated
+//TODO: rethink allocations and memory management pattern used,maybe pass the allocator type so you can free memory
+//if the data generated at the step won't be used again or isn't useful again
 pub fn main() !void {
     defer if (builtin.mode == .Debug) {
         _ = default_allocator.deinit();

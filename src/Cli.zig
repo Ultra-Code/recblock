@@ -3,7 +3,10 @@ const BlockChain = @import("Blockchain.zig");
 const Wallets = @import("Wallets.zig");
 const Iterator = @import("Iterator.zig");
 const Lmdb = @import("Lmdb.zig");
-const WALLET_STORAGE = "db/wallet.dat";
+const UTXOcache = @import("UTXOcache.zig");
+const ExitCodes = @import("utils.zig").ExitCodes;
+const BlockIterator = Iterator.BlockIterator;
+const WALLET_STORAGE = BlockChain.WALLET_STORAGE;
 
 const Cli = @This();
 
@@ -152,5 +155,5 @@ fn printUsage(cmd: Cmd) void {
             , .{});
         },
     }
-    std.process.exit(7);
+    std.process.exit(@enumToInt(ExitCodes.invalid_cli_argument));
 }
