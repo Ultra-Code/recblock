@@ -1,0 +1,10 @@
+.{
+    .name = "recblock",
+    .version = "0.1.0",
+    .dependencies = .{
+        .s2s = .{
+            .url = "https://github.com/ziglibs/s2s/archive/6484f786b1830115601cd9ffb51bccec551ac6be.tar.gz",
+            .hash = "1220f6c17bde3f75ac79f29b5572f75fc35275b552b5b398d42df133fa038a29b396",
+        },
+    },
+}

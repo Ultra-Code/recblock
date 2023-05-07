@@ -8,9 +8,7 @@ comptime {
 }
 
 pub fn build(b: *Build) void {
-    const s2s_module = b.createModule(.{
-        .source_file = .{ .path = "./deps/s2s/s2s.zig" },
-    });
+    const s2s_module = b.dependency("s2s", .{}).module("s2s");
 
     const LMDB_PATH = "./deps/lmdb/libraries/liblmdb/";
     // what target to build for. Here we do not override the defaults, which
@@ -32,7 +30,7 @@ pub fn build(b: *Build) void {
     });
     lmdb.addCSourceFiles(&lmdb_sources, &cflags);
     lmdb.linkLibC();
-    lmdb.install();
+    b.installArtifact(lmdb);
 
     const target_name = target.allocDescription(b.allocator) catch unreachable;
     const exe_name = std.fmt.allocPrint(b.allocator, "{[program]s}-{[target]s}", .{
@@ -51,7 +49,7 @@ pub fn build(b: *Build) void {
     exe.addModule("s2s", s2s_module);
     exe.linkLibrary(lmdb);
     exe.addIncludePath(LMDB_PATH);
-    exe.install();
+    b.installArtifact(exe);
     exe.stack_size = 1024 * 1024 * 64;
 
     switch (optimize) {
@@ -72,7 +70,7 @@ pub fn build(b: *Build) void {
         },
         else => {},
     }
-    const run_cmd = exe.run();
+    const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| {
         run_cmd.addArgs(args);
