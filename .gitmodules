@@ -1,3 +1,3 @@
 [submodule "deps/lmdb"]
 	path = deps/lmdb
-	url = git@github.com:Ultra-Code/lmdb.git
+	url = git@github.com:LMDB/lmdb.git
