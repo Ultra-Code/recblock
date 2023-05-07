@@ -9,15 +9,16 @@ const gpa = if (builtin.link_libc and builtin.mode != .Debug)
 else
     default_allocator.allocator();
 
-// TODO: improve memory usage and recycling at appropiate places.
+//TODO: improve memory usage and recycling at appropiate places.
 // set buffers in local scope based on the sizeof the struct or types stored or allocated
 //TODO: rethink allocations and memory management pattern used,maybe pass the allocator type so you can free memory
 //if the data generated at the step won't be used again or isn't useful again
+//TODO: update Hex formatting to use X/x
 pub fn main() !void {
     defer if (builtin.mode == .Debug) {
         _ = default_allocator.deinit();
     };
-    var buf: [1024 * 1024 * 12]u8 = undefined;
+    var buf: [1024 * 1024 * 7]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&buf);
 
     var arena = std.heap.ArenaAllocator.init(fba.allocator());
