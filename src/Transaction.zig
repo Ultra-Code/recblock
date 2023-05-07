@@ -105,7 +105,7 @@ pub fn sign(self: *Transaction, wallet_keys: Wallet.KeyPair, prev_txs: PrevTxMap
     //The copy will include all the inputs and outputs, but TxInput.sig and TxInput.pub_key are empty
     var trimmed_tx_copy = self.trimmedCopy(fba);
 
-    for (trimmed_tx_copy.tx_in.items) |value_in, in_index| {
+    for (trimmed_tx_copy.tx_in.items, 0..) |value_in, in_index| {
         //we use prev_txs because that has signed and verified to help in signing and verifying new transactions
         if (prev_txs.get(value_in.out_id)) |prev_tx| {
             //since the public_key of trimmedCopy is empty we store a copy of the pub_key_hash from the transaction output
@@ -117,29 +117,31 @@ pub fn sign(self: *Transaction, wallet_keys: Wallet.KeyPair, prev_txs: PrevTxMap
         var noise: [Wallets.Ed25519.noise_length]u8 = undefined;
         std.crypto.random.bytes(&noise);
 
-        const signature = Wallets.Ed25519.sign(trimmed_tx_copy.id[0..], wallet_keys, noise) catch unreachable;
-
+        const signature = wallet_keys.sign(trimmed_tx_copy.id[0..], noise) catch unreachable;
         self.tx_in.items[in_index].sig = signature;
     }
 }
 
 fn copyHashIntoPubKey(pub_key: *Wallets.PublicKey, pub_key_hash: Wallets.PublicKeyHash) void {
     //copy 0..20 of pub_key_hash into the beginning of pub_key
-    @memcpy(pub_key[0..], pub_key_hash[0..], @sizeOf(Wallets.PublicKeyHash));
+    @memcpy(pub_key.bytes[0..@sizeOf(Wallets.PublicKeyHash)], pub_key_hash[0..]);
     //recopy 12 bytes from pub_key_hash into 21..end of pub_key
-    @memcpy(pub_key[@sizeOf(Wallets.PublicKeyHash)..], pub_key_hash[0..], @sizeOf(Wallets.PublicKey) - @sizeOf(Wallets.PublicKeyHash));
+    @memcpy(
+        pub_key.bytes[@sizeOf(Wallets.PublicKeyHash)..],
+        pub_key_hash[0..(@sizeOf(Wallets.PublicKey) - @sizeOf(Wallets.PublicKeyHash))],
+    );
 }
 
 pub fn verify(self: Transaction, prev_txs: PrevTxMap, fba: Allocator) bool {
     var trimmed_tx_copy = self.trimmedCopy(fba);
 
-    for (self.tx_in.items) |value_in, in_index| {
+    for (self.tx_in.items, 0..) |value_in, in_index| {
         if (prev_txs.get(value_in.out_id)) |prev_tx| {
             copyHashIntoPubKey(&trimmed_tx_copy.tx_in.items[in_index].pub_key, prev_tx.tx_out.items[value_in.out_index].pub_key_hash);
         }
         trimmed_tx_copy.setId();
-
-        if (Wallets.Ed25519.verify(value_in.sig, trimmed_tx_copy.id[0..], value_in.pub_key)) |_| {} else |err| {
+        const sig: Wallets.Signature = value_in.sig;
+        if (sig.verify(trimmed_tx_copy.id[0..], value_in.pub_key)) |_| {} else |err| {
             std.log.info("public key has a value of {}", .{value_in});
             std.log.err("{s} occurred while verifying the transaction", .{@errorName(err)});
             return false;

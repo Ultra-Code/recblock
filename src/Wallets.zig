@@ -16,9 +16,9 @@ const VERSION = '\x01';
 pub const PUB_KEY_LEN = Ed25519.public_length;
 pub const ADDRESS_SIZE = encodedAddressLenght();
 
-pub const PrivateKey = [Ed25519.secret_length]u8;
-pub const PublicKey = [Ed25519.public_length]u8;
-pub const Signature = [Ed25519.signature_length]u8;
+pub const PrivateKey = Ed25519.SecretKey;
+pub const PublicKey = Ed25519.PublicKey;
+pub const Signature = Ed25519.Signature;
 pub const Address = [ADDRESS_SIZE]u8;
 pub const PublicKeyHash = [PUB_KEY_HASH_LEN]u8;
 pub const Checksum = [ADDR_CKSUM_LEN]u8;
@@ -190,7 +190,7 @@ pub const Wallet = struct {
         //https://linuxadictos.com/en/blake3-a-fast-and-parallelizable-secure-cryptographic-hash-function.html
         //replaces sha256 with Blake3 which is also 256 and faster in software
         var pk_hash: [Blake3.digest_length]u8 = undefined;
-        Blake3.hash(pub_key[0..], &pk_hash, .{});
+        Blake3.hash(pub_key.bytes[0..], &pk_hash, .{});
 
         //use Blake2b160 as a replacement for bitcoins ripemd-160 https://en.bitcoin.it/wiki/RIPEMD-160
         //smaller bit lenght for easy readability for user
