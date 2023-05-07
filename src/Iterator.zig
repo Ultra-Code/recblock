@@ -23,10 +23,11 @@ pub const BlockIterator = struct {
     ///the returned usize is the address of the Block in memory
     ///the ptr can be obtained with @intToPtr
     pub fn next(self: *BlockIterator) ?Block {
-        const txn = self.db.startTxn(.{ .rw = false }, BLOCK_DB);
-        defer txn.doneReading();
+        const txn = self.db.startTxn();
+        const db = self.db.openDb(txn, BLOCK_DB);
+        defer db.doneReading();
 
-        if (txn.getAlloc(Block, self.arena, self.current_hash[0..])) |current_block| {
+        if (db.getAlloc(Block, self.arena, self.current_hash[0..])) |current_block| {
             self.current_hash = current_block.previous_hash;
 
             return current_block;
