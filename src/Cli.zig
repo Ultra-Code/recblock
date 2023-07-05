@@ -165,5 +165,5 @@ fn printUsage(cmd: Cmd) void {
             , .{});
         },
     }
-    std.process.exit(@enumToInt(ExitCodes.invalid_cli_argument));
+    std.process.exit(@intFromEnum(ExitCodes.invalid_cli_argument));
 }

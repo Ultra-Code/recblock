@@ -90,8 +90,8 @@ fn getTargetHash(target_dificulty: u7) u256 {
     //hast to be compaired with for valid hashes to prove work done
     const @"256bit": u9 = 256; //256 bit is 32 byte which is the size of a Blake3 hash
     const @"1": u256 = 1; //a 32 byte integer with the value of 1
-    const difficult = @intCast(u8, @"256bit" - target_dificulty);
-    const target_hash_difficult = @shlExact(@"1", difficult);
+    const difficult: u8 = @intCast(@"256bit" - target_dificulty);
+    const target_hash_difficult: u256 = @shlExact(@"1", difficult);
     return target_hash_difficult;
 }
 
@@ -106,7 +106,7 @@ pub fn POW(block: Block) struct { hash: Hash, nonce: usize } {
         const hash_int = block.hashBlock(nonce);
 
         if (hash_int < target_hash) {
-            return .{ .hash = @bitCast(Hash, hash_int), .nonce = nonce };
+            return .{ .hash = @bitCast(hash_int), .nonce = nonce };
         } else {
             nonce += 1;
         }

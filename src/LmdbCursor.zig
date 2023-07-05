@@ -74,7 +74,7 @@ pub fn LmdbCursor(comptime ckey: type, comptime cvalue: type) type {
                 cursor.cursor_handle,
                 &key_value,
                 &data_value,
-                @enumToInt(cursor_get_op),
+                @intFromEnum(cursor_get_op),
             );
 
             checkState(get_state) catch return null;
@@ -117,7 +117,7 @@ pub fn LmdbCursor(comptime ckey: type, comptime cvalue: type) type {
                 cursor.cursor_handle,
                 &key_value,
                 &data_value,
-                @enumToInt(cursor_get_op),
+                @intFromEnum(cursor_get_op),
             );
 
             checkState(get_state) catch return null;

@@ -201,7 +201,7 @@ pub fn update(utxo_cache: UTXOcache, block: Block) void {
 pub fn getBalance(cache: UTXOcache, address: Wallets.Address) usize {
     if (!Wallet.validateAddress(address)) {
         std.log.err("address {s} is invalid", .{address});
-        std.process.exit(@enumToInt(ExitCodes.invalid_wallet_address));
+        std.process.exit(@intFromEnum(ExitCodes.invalid_wallet_address));
     }
     var balance: usize = 0;
     const utxos = cache.findUnlockableOutputs(Wallet.getPubKeyHash(address));
