@@ -69,7 +69,7 @@ pub fn getWallet(self: Wallets, address: Address) Wallet {
     return self.wallets.get(address) orelse {
         std.log.err("The wallet address specified '{s}' does not exit", .{address});
         std.log.err("Create a wallet with the 'createwallet' command", .{});
-        std.process.exit(@enumToInt(ExitCodes.invalid_wallet_address));
+        std.process.exit(@intFromEnum(ExitCodes.invalid_wallet_address));
     };
 }
 

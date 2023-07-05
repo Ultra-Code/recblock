@@ -49,7 +49,7 @@ pub fn getChain(lmdb: Lmdb, arena: std.mem.Allocator) BlockChain {
         return .{ .last_hash = last_block_hash, .db = db, .arena = arena };
     } else |_| {
         std.log.err("create a blockchain with creatchain command before using any other command", .{});
-        std.process.exit(@enumToInt(ExitCodes.blockchain_not_found));
+        std.process.exit(@intFromEnum(ExitCodes.blockchain_not_found));
     }
 }
 
@@ -57,7 +57,7 @@ pub fn getChain(lmdb: Lmdb, arena: std.mem.Allocator) BlockChain {
 pub fn newChain(lmdb: Lmdb, arena: std.mem.Allocator, address: Wallets.Address) BlockChain {
     if (!Wallet.validateAddress(address)) {
         std.log.err("blockchain address {s} is invalid", .{address});
-        std.process.exit(@enumToInt(ExitCodes.invalid_wallet_address));
+        std.process.exit(@intFromEnum(ExitCodes.invalid_wallet_address));
     }
     var buf: [1024 * 6]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&buf);
@@ -77,7 +77,7 @@ pub fn newChain(lmdb: Lmdb, arena: std.mem.Allocator, address: Wallets.Address) 
             std.log.err("Attempting to create a new blockchain at address '{s}' while a blockchain already exist", .{
                 address,
             });
-            std.process.exit(@enumToInt(ExitCodes.blockchain_already_exist));
+            std.process.exit(@intFromEnum(ExitCodes.blockchain_already_exist));
         },
         else => unreachable,
     };
@@ -204,7 +204,7 @@ fn newUTx(self: BlockChain, utxo_cache: UTXOcache, amount: usize, from: Wallets.
 
     if (accumulated_amount < amount) {
         std.log.err("not enough funds to transfer RBC {d} from '{s}' to '{s}'", .{ amount, from, to });
-        std.process.exit(@enumToInt(ExitCodes.insufficient_wallet_balance));
+        std.process.exit(@intFromEnum(ExitCodes.insufficient_wallet_balance));
     }
 
     //Build a list of inputs
@@ -284,11 +284,11 @@ pub fn sendValue(self: *BlockChain, amount: usize, from: Wallets.Address, to: Wa
 
     if (!Wallet.validateAddress(from)) {
         std.log.err("sender address {s} is invalid", .{from});
-        std.process.exit(@enumToInt(ExitCodes.invalid_wallet_address));
+        std.process.exit(@intFromEnum(ExitCodes.invalid_wallet_address));
     }
     if (!Wallet.validateAddress(to)) {
         std.log.err("recipient address {s} is invalid", .{to});
-        std.process.exit(@enumToInt(ExitCodes.invalid_wallet_address));
+        std.process.exit(@intFromEnum(ExitCodes.invalid_wallet_address));
     }
     const cache = UTXOcache.init(self.db, self.arena);
     var new_transaction = self.newUTx(cache, amount, from, to);

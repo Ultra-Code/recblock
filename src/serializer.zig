@@ -22,7 +22,7 @@ pub fn serialize(data: anytype) [HASH_SIZE + @sizeOf(@TypeOf(data))]u8 {
 
 /// get bytes starting from `0` to `len`
 pub fn getRawBytes(data: ?*anyopaque, len: usize) []const u8 {
-    return @ptrCast([*]const u8, data.?)[0..len];
+    return @as([*]const u8, @ptrCast(data.?))[0..len];
 }
 
 ///deserialize bytes representing data as `T`
@@ -66,12 +66,12 @@ pub fn deserializeAlloc(comptime T: type, fballocator: std.mem.Allocator, data: 
 
 /// serialized a type in memory
 fn inMemSerialize(type_to_serialize: anytype, serialized_buf: *[@sizeOf(@TypeOf(type_to_serialize))]u8) void {
-    @memcpy(serialized_buf, @ptrCast([*]const u8, &type_to_serialize));
+    @memcpy(serialized_buf, @as([*]const u8, @ptrCast(&type_to_serialize)));
 }
 
 /// deserialize data from memory
 fn inMemDeserialize(comptime T: type, serialized_t: [@sizeOf(T)]u8) T {
-    return @bitCast(T, serialized_t);
+    return @bitCast(serialized_t);
 }
 
 // test "simple serialization/deserialization with other data interleved " {
