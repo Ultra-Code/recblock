@@ -52,7 +52,7 @@ pub fn initdb(db_path: []const u8, txn_type: TxnType) Lmdb {
     const db_limit_state = mdb.mdb_env_set_maxdbs(db_env, max_num_of_dbs);
     checkState(db_limit_state) catch unreachable;
 
-    const db_flags = @enumToInt(txn_type);
+    const db_flags = @intFromEnum(txn_type);
     const permissions: c_uint = 0o0600; //octal permissions for created files in db_dir
     const open_state = mdb.mdb_env_open(db_env, db_path.ptr, db_flags, permissions);
     checkState(open_state) catch |open_err| switch (open_err) {
@@ -207,7 +207,7 @@ const RemoveAction = enum(u1) {
 
 inline fn remove(lmdb: Lmdb, action: RemoveAction) void {
     //0 to empty the DB, 1 to delete it from the environment and close the DB handle.
-    const empty_db_state = mdb.mdb_drop(lmdb.txn.?, lmdb.db_handle, @enumToInt(action));
+    const empty_db_state = mdb.mdb_drop(lmdb.txn.?, lmdb.db_handle, @intFromEnum(action));
     checkState(empty_db_state) catch unreachable;
 }
 
@@ -394,7 +394,7 @@ fn abortTxns(lmdb: Lmdb) void {
 
 ///This is any unsafe cast which discards const
 pub fn cast(comptime T: type, any_ptr: anytype) T {
-    return @intToPtr(T, @ptrToInt(any_ptr));
+    return @constCast(any_ptr);
 }
 
 ///get `key` as `T` when it doesn't require allocation
@@ -531,30 +531,30 @@ pub fn checkState(state: c_int) !void {
             return error.InvalidDbHandle;
         },
         //out of memory.
-        @enumToInt(err.NOENT) => {
+        @intFromEnum(err.NOENT) => {
             return error.NoSuchFileOrDirectory;
         },
         //don't have adecuate permissions to perform operation
-        @enumToInt(err.ACCES) => {
+        @intFromEnum(err.ACCES) => {
             return error.PermissionDenied;
         },
         //the environment was locked by another process.
-        @enumToInt(err.AGAIN) => {
+        @intFromEnum(err.AGAIN) => {
             return error.EnvLockedTryAgain;
         },
-        @enumToInt(err.NOMEM) => {
+        @intFromEnum(err.NOMEM) => {
             return error.OutOfMemory;
         },
         //an invalid parameter was specified.
-        @enumToInt(err.INVAL) => {
+        @intFromEnum(err.INVAL) => {
             return error.InvalidArgument;
         },
         //a low-level I/O error occurred
-        @enumToInt(err.IO) => {
+        @intFromEnum(err.IO) => {
             return error.IOFailed;
         },
         //no more disk space on device.
-        @enumToInt(err.NOSPC) => {
+        @intFromEnum(err.NOSPC) => {
             return error.DiskSpaceFull;
         },
         else => panic("'{}' -> {s}", .{ state, mdb.mdb_strerror(state) }),
