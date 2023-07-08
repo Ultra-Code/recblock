@@ -257,23 +257,23 @@ const InsertFlags = enum {
 
 fn insert(lmdb: Lmdb, key: []const u8, serialized_data: []const u8, flags: InsertFlags) !void {
     const set_flags = try DbFlags.flags(lmdb);
-
+    const is_dup_sorted = set_flags.isDupSorted();
     const DEFAULT_BEHAVIOUR = 0;
     const ALLOW_DUP_DATA = 0;
     // zig fmt: off
     const insert_flags: c_uint =
     //enter the new key/data pair only if both key and value does not already appear in the database.
     //that is allow duplicate keys but not both duplicate keys and values
-    if (set_flags.isDupSorted() and flags == .no_dup_data )
+    if (is_dup_sorted and flags == .no_dup_data )
     // Only for MDB_DUPSORT
     // For put: don't write if the key and data pair already exist.
     // For mdb_cursor_del: remove all duplicate data items.
         mdb.MDB_NODUPDATA
     //default behavior: allow adding a duplicate key/data item if duplicates are allowed (MDB_DUPSORT)
-    else if (set_flags.isDupSorted() and flags == .dup_data )
+    else if (is_dup_sorted and flags == .dup_data )
         ALLOW_DUP_DATA
     // if the database supports duplicates (MDB_DUPSORT). The data parameter will be set to point to the existing item.
-    else if (set_flags.isDupSorted() and flags == .no_overwrite ) mdb.MDB_NOOVERWRITE
+    else if (is_dup_sorted and flags == .no_overwrite ) mdb.MDB_NOOVERWRITE
     //enter the new key/data pair only if the key does not already appear in the database
     //that is: don't allow overwriting keys
     else if (flags == .no_overwrite ) mdb.MDB_NOOVERWRITE
@@ -282,10 +282,10 @@ fn insert(lmdb: Lmdb, key: []const u8, serialized_data: []const u8, flags: Inser
     //allow overwriting data
     else DEFAULT_BEHAVIOUR;
     // zig fmt: on
-    if (flags == .overwrite and set_flags.isDupSorted()) {
-        del(lmdb, key, .all, {}) catch unreachable;
 
-        return lmdb.insert(key, serialized_data, .no_overwrite) catch unreachable;
+    if (is_dup_sorted and flags == .overwrite) {
+        del(lmdb, key, .all, {}) catch unreachable;
+        return try mdbput(lmdb, insert_flags, key, serialized_data);
     } else if (flags == .overwrite) {
         //use default behavior
         return try mdbput(lmdb, insert_flags, key, serialized_data);
@@ -294,7 +294,10 @@ fn insert(lmdb: Lmdb, key: []const u8, serialized_data: []const u8, flags: Inser
     try mdbput(lmdb, insert_flags, key, serialized_data);
 }
 
-inline fn mdbput(lmdb: Lmdb, insert_flags: c_uint, key: []const u8, serialized_data: []const u8) !void {
+fn mdbput(lmdb: Lmdb, insert_flags: c_uint, key: []const u8, serialized_data: []const u8) !void {
+    //due to limitations of lmdb,the len of data items in a #MDB_DUPSORT db are limited to a max of 512
+    // NOTE: MDB_MAXKEYSIZE macro in deps/lmdb/libraries/liblmdb/mdb.c Line:665
+
     var insert_key = dbKey(key);
     var value_data = dbValue(serialized_data[0..]);
     const put_state = mdb.mdb_put(
@@ -304,7 +307,15 @@ inline fn mdbput(lmdb: Lmdb, insert_flags: c_uint, key: []const u8, serialized_d
         &value_data,
         insert_flags,
     );
-    try checkState(put_state);
+
+    checkState(put_state) catch |put_errors| switch (put_errors) {
+        error.UnsupportedKeyOrDataSize => @panic(
+            \\Cannot store Keys/#MDB_DUPSORT data items greater than 512.
+            \\Maybe try the compress option/rethink your use of dupsort db
+            \\http://www.lmdb.tech/doc/group__mdb.html#gaaf0be004f33828bf2fb09d77eb3cef94
+        ),
+        else => |remaining_put_errors| return remaining_put_errors,
+    };
 }
 
 ///insert new key/data pair without overwriting already inserted pair
@@ -313,6 +324,7 @@ pub fn put(lmdb: Lmdb, key: []const u8, data: anytype) !void {
     ensureValidState(lmdb);
 
     const serialized_data = serializer.serialize(data);
+
     try insert(lmdb, key, serialized_data[0..], .no_overwrite);
 }
 
