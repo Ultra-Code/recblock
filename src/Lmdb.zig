@@ -328,6 +328,31 @@ pub fn put(lmdb: Lmdb, key: []const u8, data: anytype) !void {
     try insert(lmdb, key, serialized_data[0..], .no_overwrite);
 }
 
+fn compress(serialized_data: []const u8, compressed_buf: [serialized_data.len]u8) *const [serialized_data.len]u8 {
+    const allocator = std.heap.FixedBufferAllocator.init(&compressed_buf);
+    const fbs = std.io.fixedBufferStream(compressed_buf);
+    const writer = fbs.writer();
+
+    const zlib = try std.compress.zlib.compressStream(allocator, writer, .{});
+    defer zlib.deinit();
+
+    zlib.writer().writeAll(serialized_data);
+    zlib.finish();
+
+    return fbs.getWritten();
+}
+
+fn decompress(allocator: std.heap.FixedBufferAllocator, compressed_data: []const u8) ![]const u8 {
+    var in_stream = std.io.fixedBufferStream(compressed_data);
+    const fba = allocator.allocator();
+
+    var zlib = try std.compress.zlib.decompressStream(fba, in_stream.reader());
+    defer zlib.deinit();
+
+    // Read and decompress the whole file
+    return try zlib.reader().readAllAlloc(fba, allocator.buffer.len);
+}
+
 ///use `putAlloc` when data contains slices or pointers
 ///recommend you use fixedBufferAllocator or ArenaAllocator
 pub fn putAlloc(lmdb: Lmdb, fba: std.mem.Allocator, key: []const u8, data: anytype) !void {
