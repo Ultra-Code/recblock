@@ -20,15 +20,16 @@ pub fn serialize(data: anytype) [HASH_SIZE + @sizeOf(@TypeOf(data))]u8 {
     return serialized_data;
 }
 
-fn getRawBytes(data: ?*anyopaque, start: usize, size: usize) []const u8 {
-    return @ptrCast([*]u8, data.?)[start..size];
+/// get bytes starting from `0` to `len`
+pub fn getRawBytes(data: ?*anyopaque, len: usize) []const u8 {
+    return @as([*]const u8, @ptrCast(data.?))[0..len];
 }
 
 ///deserialize bytes representing data as `T`
 ///use when no allocation is required .ie data doesn't contain ptr or slice
-pub fn deserialize(comptime T: type, data: ?*anyopaque, size: usize) T {
+pub fn deserialize(comptime T: type, data: ?*anyopaque, len: usize) T {
     // return std.mem.bytesAsSlice(T, getBytes(data.?, size))[0];
-    const serialized_data = getRawBytes(data, 0, size);
+    const serialized_data = getRawBytes(data, len);
 
     var fbr = std.io.fixedBufferStream(serialized_data);
     fbr.seekTo(0) catch unreachable;
@@ -39,9 +40,9 @@ pub fn deserialize(comptime T: type, data: ?*anyopaque, size: usize) T {
 
 ///deserialize types with require allocation
 ///recommend you use a `fixedBufferAllocator`
-pub fn deserializeAlloc(comptime T: type, fballocator: std.mem.Allocator, data: ?*anyopaque, size: usize) T {
+pub fn deserializeAlloc(comptime T: type, fballocator: std.mem.Allocator, data: ?*anyopaque, len: usize) T {
     // return std.mem.bytesAsSlice(T, getBytes(data.?, size))[0];
-    const serialized_data = getRawBytes(data, 0, size);
+    const serialized_data = getRawBytes(data, len);
 
     var fbr = std.io.fixedBufferStream(serialized_data);
     fbr.seekTo(0) catch unreachable;
@@ -65,12 +66,12 @@ pub fn deserializeAlloc(comptime T: type, fballocator: std.mem.Allocator, data: 
 
 /// serialized a type in memory
 fn inMemSerialize(type_to_serialize: anytype, serialized_buf: *[@sizeOf(@TypeOf(type_to_serialize))]u8) void {
-    @memcpy(serialized_buf, @ptrCast([*]const u8, &type_to_serialize), @sizeOf(@TypeOf(type_to_serialize)));
+    @memcpy(serialized_buf, @as([*]const u8, @ptrCast(&type_to_serialize)));
 }
 
 /// deserialize data from memory
 fn inMemDeserialize(comptime T: type, serialized_t: [@sizeOf(T)]u8) T {
-    return @bitCast(T, serialized_t);
+    return @bitCast(serialized_t);
 }
 
 // test "simple serialization/deserialization with other data interleved " {
@@ -123,7 +124,7 @@ fn inMemDeserialize(comptime T: type, serialized_t: [@sizeOf(T)]u8) T {
 //             debug("{s} has {s}", .{ field.name, field });
 //             const slice = @bitCast([]const u8, manyptr_to_serialize[size .. size + size_of_slice]);
 //             debug("slice ptr contains {s}", .{slice});
-//             @memcpy(serialized_buf[size..].ptr, slice.ptr, slice.len);
+//             @memcpy(serialized_buf[size..].ptr, slice[0..]);
 //             size += size_of_slice;
 //         } else {
 //             const type_size = comptime blk: {
@@ -145,7 +146,7 @@ fn inMemDeserialize(comptime T: type, serialized_t: [@sizeOf(T)]u8) T {
 //         }
 //         debug("{} bytes copied", .{size});
 //     }
-//     //     // @memcpy(serialized_buf, @ptrCast([*]const u8, &type_to_serialize), @sizeOf(@TypeOf(type_to_serialize)));
+//     //     // @memcpy(serialized_buf, @ptrCast([*]const u8, &type_to_serialize));
 // }
 //
 //  pub fn deserialize(comptime T: type, serialized_t: [@sizeOf(T)]u8) T {
@@ -156,7 +157,7 @@ fn inMemDeserialize(comptime T: type, serialized_t: [@sizeOf(T)]u8) T {
 //  inline for (fields) |field| {
 //      if (std.meta.trait.isSlice(field.field_type)) {
 //          const size_of_slice = @sizeOf(field.field_type);
-//          @memcpy(cast([*]u8, des_type.character.ptr), serialized_t[size .. size + size_of_slice].ptr, size_of_slice);
+//          @memcpy(cast([*]u8, des_type.character.ptr), serialized_t[size .. size + size_of_slice]);
 //          size += size_of_slice;
 //      } else {
 //          const type_size = comptime blk: {
@@ -168,7 +169,7 @@ fn inMemDeserialize(comptime T: type, serialized_t: [@sizeOf(T)]u8) T {
 //          };
 //          //since size might have been modified
 //          const actual_size = @sizeOf(field.field_type);
-//          @memcpy(des_type.integer, serialized_t[size .. size + actual_size].ptr, actual_size);
+//          @memcpy(des_type.integer, serialized_t[size .. size + actual_size]);
 //          size += type_size;
 //      }
 //  }
