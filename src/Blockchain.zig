@@ -40,10 +40,10 @@ arena: std.mem.Allocator,
 
 //TODO:organise and document exit codes
 pub fn getChain(lmdb: Lmdb, arena: std.mem.Allocator) BlockChain {
-    const txn = lmdb.startTxn();
+    const txn = lmdb.startTxn(.ro);
 
-    const db = lmdb.openDb(txn, BLOCK_DB);
-    defer db.commitTxns();
+    const db = txn.openDb(BLOCK_DB);
+    defer db.doneReading();
 
     if (db.get(Hash, LAST)) |last_block_hash| {
         return .{ .last_hash = last_block_hash, .db = db, .arena = arena };
@@ -66,10 +66,10 @@ pub fn newChain(lmdb: Lmdb, arena: std.mem.Allocator, address: Wallets.Address) 
     const coinbase_tx = Transaction.initCoinBaseTx(allocator, address, WALLET_STORAGE);
     const genesis_block = Block.genesisBlock(allocator, coinbase_tx);
 
-    const txn = lmdb.startTxn();
+    const txn = lmdb.startTxn(.rw);
 
-    lmdb.setDbOpt(txn, .{ .rw = true, .dup = true }, BLOCK_DB);
-    const db = lmdb.openDb(txn, BLOCK_DB);
+    txn.setDbOpt(BLOCK_DB, .{});
+    const db = txn.openDb(BLOCK_DB);
     defer db.commitTxns();
 
     db.put(LAST, genesis_block.hash) catch |newchain_err| switch (newchain_err) {
@@ -107,8 +107,8 @@ pub fn mineBlock(bc: *BlockChain, transactions: []const Transaction) Block {
 
     assert(new_block.validate() == true);
 
-    const txn = bc.db.startTxn();
-    const db = bc.db.openDb(txn, BLOCK_DB);
+    const txn = bc.db.startTxn(.rw);
+    const db = txn.openDb(BLOCK_DB);
     defer db.commitTxns();
 
     db.putAlloc(allocator, new_block.hash[0..], new_block) catch unreachable;

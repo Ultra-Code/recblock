@@ -24,20 +24,19 @@ pub fn init(db: Lmdb, arena: std.mem.Allocator) UTXOcache {
 }
 
 pub fn reindex(utxo_cache: UTXOcache, bc: BlockChain) void {
+    const txn = utxo_cache.db.startTxn(.rw);
+    txn.setDbOpt(UTXO_DB, .{});
+    const db = txn.openDb(UTXO_DB);
+    defer db.commitTxns();
+
+    db.emptyDb();
+
     var buffer: [1024 * 1024]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&buffer);
     const allocator = fba.allocator();
 
     const unspent_txos = bc.findAndMapAllTxIDsToUTxOs();
     var itr = unspent_txos.iterator();
-
-    const txn = utxo_cache.db.startTxn();
-    utxo_cache.db.setDbOpt(txn, .{ .rw = true }, UTXO_DB);
-
-    const db = utxo_cache.db.openDb(txn, UTXO_DB);
-    defer db.commitTxns();
-
-    db.emptyDb();
 
     while (itr.next()) |entry| {
         const tx_id: Transaction.TxID = entry.key_ptr.*;
@@ -55,22 +54,21 @@ pub fn findSpendableOutputs(
     accumulated_amount: usize,
     unspent_output: TxMap,
 } {
-    var buffer: [1024 * 1024]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buffer);
-
-    var unspent_output = TxMap.init(utxo_cache.arena);
-
-    var accumulated_amount: usize = 0;
-
-    const txn = utxo_cache.db.startTxn();
-    const db = utxo_cache.db.openDb(txn, UTXO_DB);
+    const txn = utxo_cache.db.startTxn(.ro);
+    const db = txn.openDb(UTXO_DB);
     defer db.doneReading();
 
     const cursor = Cursor.init(db);
     defer cursor.deinit();
 
+    var buffer: [1024 * 1024]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buffer);
+
     var iterator = cursor.iterator(fba);
     defer iterator.deinit();
+
+    var accumulated_amount: usize = 0;
+    var unspent_output = TxMap.init(utxo_cache.arena);
 
     // const unspentTxs = self.findUTxs(pub_key_hash);
     var next = iterator.start();
@@ -83,10 +81,6 @@ pub fn findSpendableOutputs(
                 const unspent_output_txid = entry.key;
                 accumulated_amount += output.value;
                 unspent_output.putNoClobber(unspent_output_txid, out_index) catch unreachable;
-
-                //     if (accumulated_amount >= amount) {
-                //         break :spendables;
-                //     }
             }
         }
     }
@@ -96,22 +90,20 @@ pub fn findSpendableOutputs(
 
 ///find unspent transaction outputs
 pub fn findUnlockableOutputs(utxo_cache: UTXOcache, pub_key_hash: Wallets.PublicKeyHash) []const Transaction.TxOutput {
-    var buffer: [1024 * 1024]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(buffer[0..]);
-
-    var utx_output_list = std.ArrayList(Transaction.TxOutput).init(utxo_cache.arena);
-
-    const txn = utxo_cache.db.startTxn();
-    const db = utxo_cache.db.openDb(txn, UTXO_DB);
+    const txn = utxo_cache.db.startTxn(.ro);
+    const db = txn.openDb(UTXO_DB);
     defer db.doneReading();
 
     const cursor = Cursor.init(db);
     defer cursor.deinit();
 
+    var buffer: [1024 * 1024]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(buffer[0..]);
+
+    var utx_output_list = std.ArrayList(Transaction.TxOutput).init(utxo_cache.arena);
     var iterator = cursor.iterator(fba);
     defer iterator.deinit();
 
-    // const unspent_txs = self.findUTxs(pub_key_hash);
     var iter = iterator.start();
     while (iter) |entry| : (iter = iterator.next()) {
         for (entry.value) |output| {
@@ -124,19 +116,19 @@ pub fn findUnlockableOutputs(utxo_cache: UTXOcache, pub_key_hash: Wallets.Public
 }
 
 pub fn update(utxo_cache: UTXOcache, block: Block) void {
-    var buffer: [1024 * 1024]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buffer);
-    const allocator = fba.allocator();
-    const txn = utxo_cache.db.startTxn();
-
-    const db = utxo_cache.db.openDb(txn, UTXO_DB);
+    const txn = utxo_cache.db.startTxn(.rw);
+    const db = txn.openDb(UTXO_DB);
     defer db.commitTxns();
 
     const cursor = Cursor.init(db);
     defer cursor.deinit();
 
+    var buffer: [1024 * 1024]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buffer);
+    const allocator = fba.allocator();
+
     for (block.transactions.items) |tx| {
-        if (!tx.isCoinBaseTx()) {
+        if (tx.isCoinBaseTx() == false) {
             var updated_output = std.ArrayList(Transaction.TxOutput).init(allocator);
             defer updated_output.deinit();
 
@@ -155,8 +147,7 @@ pub fn update(utxo_cache: UTXOcache, block: Block) void {
                 //cache
                 if (updated_output.items.len == 0) {
                     //TODO: check that this doesn't affect the preoviously inserted outputs
-                    cursor.print("before txn.delDupsAlloc");
-                    cursor.print("after txn.delDupsAlloc");
+                    db.del(txin.out_id[0..], .exact, {}) catch unreachable;
                 } else {
                     //update the cache with the new output_list of the txin.out_id
                     db.updateAlloc(allocator, txin.out_id[0..], updated_output.items) catch unreachable;
@@ -173,7 +164,8 @@ pub fn update(utxo_cache: UTXOcache, block: Block) void {
         }
 
         //TODO: maybe we should put value rather
-        // txn.putAlloc(allocator, tx.id[0..], uoutput.items) catch |key_data_already_exist| switch (key_data_already_exist) {
+        db.putAlloc(allocator, tx.id[0..], uoutput.items) catch unreachable;
+        // |key_data_already_exist| switch (key_data_already_exist) {
         //     //when the exact same key and data pair already exist in the db
         //     error.KeyAlreadyExist => {
         //         const previous_outputs = txn.getAlloc([]const Transaction.TxOutput, allocator, tx.id[0..]) catch unreachable;
@@ -187,14 +179,17 @@ pub fn update(utxo_cache: UTXOcache, block: Block) void {
         //             current_value_sum += poutputs.value;
         //         }
         //
-        //         const new_output_with_all_value = Transaction.TxOutput{ .value = current_value_sum, .pub_key_hash = previous_outputs[0].pub_key_hash };
+        //         const new_output_with_all_value = Transaction.TxOutput{
+        //             .value = current_value_sum,
+        //             .pub_key_hash = previous_outputs[0].pub_key_hash,
+        //         };
         //         txn.updateAlloc(allocator, tx.id[0..], &.{new_output_with_all_value}) catch unreachable;
         //     },
         //     else => unreachable,
         // };
-        cursor.print("before txn.putDupAlloc");
-        db.putDupAlloc(allocator, tx.id[0..], uoutput.items, true) catch unreachable;
-        cursor.print("after txn.putDupAlloc");
+        // cursor.print("before txn.putDupAlloc");
+        // db.putDupAlloc(allocator, tx.id[0..], uoutput.items, true) catch unreachable;
+        // cursor.print("after txn.putDupAlloc");
     }
 }
 

@@ -46,7 +46,7 @@ pub fn LmdbCursor(comptime ckey: type, comptime cvalue: type) type {
         pub fn init(lmdb_txn: Lmdb) Self {
             ensureValidState(lmdb_txn);
             var cursor_handle: ?*Cursor = undefined;
-            const cursor_open_state = mdb.mdb_cursor_open(lmdb_txn.txn.?, lmdb_txn.db_handle, &cursor_handle);
+            const cursor_open_state = mdb.mdb_cursor_open(lmdb_txn.db_txn.?, lmdb_txn.db_handle, &cursor_handle);
             checkState(cursor_open_state) catch unreachable;
             return .{ .lmdb = lmdb_txn, .cursor_handle = cursor_handle.? };
         }
@@ -59,7 +59,7 @@ pub fn LmdbCursor(comptime ckey: type, comptime cvalue: type) type {
 
         pub fn updateCursor(cursor: Self) void {
             ensureValidState(cursor.lmdb);
-            const cursor_renew_state = mdb.mdb_cursor_renew(cursor.lmdb.txn.?, cursor.cursor_handle);
+            const cursor_renew_state = mdb.mdb_cursor_renew(cursor.lmdb.db_txn.?, cursor.cursor_handle);
             checkState(cursor_renew_state) catch unreachable;
         }
 
@@ -136,7 +136,7 @@ pub fn LmdbCursor(comptime ckey: type, comptime cvalue: type) type {
         }
 
         pub fn deinit(cursor: Self) void {
-            if (cursor.lmdb.txn_type == .ro) {
+            if (cursor.lmdb.db_txn_type == .ro) {
                 cursor.doneCursoring();
             }
         }
