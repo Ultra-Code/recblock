@@ -22,9 +22,8 @@ pub const Val = mdb.MDB_val;
 const Txn = mdb.MDB_txn;
 const DbHandle = mdb.MDB_dbi;
 
-//TODO: since we can get this from the environment dont store it in this struct
 ///Special options for this environment
-pub const TxnType = enum(c_uint) {
+pub const EnvFlags = enum(c_uint) {
     ///Use a writeable memory map unless MDB_RDONLY is set. This is faster and uses fewer mallocs,
     //but loses protection from application bugs like wild pointer writes and other bad updates into the database.
     rw = mdb.MDB_WRITEMAP,
@@ -33,17 +32,32 @@ pub const TxnType = enum(c_uint) {
     ro = mdb.MDB_RDONLY,
 };
 
+///types of database transactions
+pub const TxnType = enum {
+    rw,
+    ro,
+    not_set,
+};
+
 db_env: *Env,
-txn: ?*Txn = null,
-txn_type: TxnType,
+db_txn: ?*Txn = null,
+db_txn_type: TxnType = .not_set,
 db_handle: DbHandle = std.math.maxInt(c_uint),
 
+//TODO: add all relevant lmdb get fns
+///Get environment flags.
+pub fn getEnvFlags(env: *Env) EnvFlags {
+    var env_flags: c_uint = undefined;
+    const flags_status = mdb.mdb_env_get_flags(env, &env_flags);
+    checkState(flags_status) catch unreachable;
+    return @enumFromInt(env_flags);
+}
 ///`db_path` is the directory in which the database files reside. This directory must already exist and be writable.
-/// `initdb` fn initializes the db environment (mmap file) specifing the db mode `.rw/.ro`.
+/// `initdb` fn initializes the db environment (mmap file) specifing the `env_flags` [.rw|.ro].
 ///Make sure to start a transaction .ie startTxn() fn before calling any db manipulation fn's
 ///A maximum of two named db's are allowed
 ///if the environment is opened in read-only mode No write operations will be allowed.
-pub fn initdb(db_path: []const u8, txn_type: TxnType) Lmdb {
+pub fn initdb(db_path: []const u8, env_flags: EnvFlags) Lmdb {
     var db_env: ?*Env = undefined;
     const env_state = mdb.mdb_env_create(&db_env);
     checkState(env_state) catch unreachable;
@@ -52,7 +66,7 @@ pub fn initdb(db_path: []const u8, txn_type: TxnType) Lmdb {
     const db_limit_state = mdb.mdb_env_set_maxdbs(db_env, max_num_of_dbs);
     checkState(db_limit_state) catch unreachable;
 
-    const db_flags = @intFromEnum(txn_type);
+    const db_flags = @intFromEnum(env_flags);
     const permissions: c_uint = 0o0600; //octal permissions for created files in db_dir
     const open_state = mdb.mdb_env_open(db_env, db_path.ptr, db_flags, permissions);
     checkState(open_state) catch |open_err| switch (open_err) {
@@ -66,7 +80,6 @@ pub fn initdb(db_path: []const u8, txn_type: TxnType) Lmdb {
 
     return .{
         .db_env = db_env.?,
-        .txn_type = txn_type,
     };
 }
 
@@ -75,79 +88,120 @@ pub fn deinitdb(lmdb: Lmdb) void {
     mdb.mdb_env_close(lmdb.db_env);
 }
 
-pub const DbTxnOption = packed struct {
-    ///Create the named database if it doesn't exist.
-    ///This option is not allowed in a read-only transaction or a read-only environment.
-    rw: bool,
-    ///Duplicate keys may be used in the database.
-    ///(Or, from another perspective, keys may have multiple data items, stored in sorted order.)
-    dup: bool = false,
-};
-
+//FIX: comment to various fns to reflect current changes
 ///start a transaction in rw/ro mode and get a db handle for db manipulation
 ///commit changes with commitTxns() if .rw else doneReading() if .ro
-pub fn startTxn(lmdb: Lmdb) *Txn {
+pub fn startTxn(lmdb: Lmdb, txn_type: TxnType) Lmdb {
+    const env_flags = getEnvFlags(lmdb.db_env);
     // This transaction will not perform any write operations if ro.
-    const flags: c_uint = if (lmdb.txn_type == .ro) mdb.MDB_RDONLY else 0;
+    const txn_flags: c_uint = switch (txn_type) {
+        .rw => if (env_flags != .ro) 0 else {
+            @panic("cannot start a .rw txn in a .ro environment");
+        },
+        .ro => mdb.MDB_RDONLY,
+        else => unreachable,
+    };
     const parent = null; //no parent
     var txn: ?*Txn = undefined; //where the new #MDB_txn handle will be stored
-    const txn_state = mdb.mdb_txn_begin(lmdb.db_env, parent, flags, &txn);
+    const txn_state = mdb.mdb_txn_begin(lmdb.db_env, parent, txn_flags, &txn);
     checkState(txn_state) catch unreachable;
 
-    return txn.?;
+    return .{
+        .db_env = lmdb.db_env,
+        .db_txn = txn.?,
+        .db_txn_type = txn_type,
+    };
 }
 
-//TODO:maybe support other flags for db like MDB_DUPSORT && MDB_DUPFIXED
-//A single transaction can open multiple databases
-pub fn setDbOpt(lmdb: Lmdb, db_txn: *Txn, db_txn_option: DbTxnOption, comptime db_name: []const u8) void {
-    //Create the named database if it doesn't exist.
-    //This option is not allowed in a read-only transaction or a read-only environment
-    var db_flags: c_uint = 0;
-    if (lmdb.txn_type == .rw and db_txn_option.rw) {
-        db_flags |= mdb.MDB_CREATE;
-    } else if (lmdb.txn_type == .ro and db_txn_option.rw) {
-        @panic("Can't create a new database " ++ db_name ++ " in a read-only environment or transaction");
+pub const DbOption = packed struct {
+    ///Create the named database if it doesn't exist.
+    ///This option is not allowed in a read-only transaction or a read-only environment.
+    create_db_if_not_exist: bool = true,
+    ///Duplicate keys may be used in the database.
+    ///(Or, from another perspective, keys may have multiple data items, stored in sorted order.)
+    enable_dupsort: bool = false,
+};
+
+const DbFlags = struct {
+    flags: c_uint,
+    const Self = @This();
+
+    pub fn flags(lmdb: Lmdb) DbFlags {
+        ensureValidState(lmdb);
+
+        var set_flags: c_uint = undefined;
+        const get_flags_state = mdb.mdb_dbi_flags(lmdb.db_txn, lmdb.db_handle, &set_flags);
+        checkState(get_flags_state) catch unreachable;
+
+        return .{ .flags = set_flags };
     }
 
-    if (db_txn_option.dup) db_flags |= mdb.MDB_DUPSORT;
+    fn isDupSorted(self: Self) bool {
+        return if ((self.flags & mdb.MDB_DUPSORT) == mdb.MDB_DUPSORT) true else false;
+    }
+};
 
-    var db_handle: mdb.MDB_dbi = undefined; //dbi Address where the new #MDB_dbi handle will be stored
-    const db_state = mdb.mdb_dbi_open(db_txn, db_name.ptr, db_flags, &db_handle);
-    checkState(db_state) catch unreachable;
-}
-
-//from https://bugs.openldap.org/show_bug.cgi?id=10005
+//INFO:from https://bugs.openldap.org/show_bug.cgi?id=10005
 //The persistent flags you specified when the DB was created
 //are stored in the DB record and retrieved when the DB is opened.
 //Flags specified to mdb_dbi_open at any other time are ignored.
-pub fn openDb(lmdb: Lmdb, db_txn: *Txn, comptime db_name: []const u8) Lmdb {
+///set flags `db_options` to be used for the opened db `db_name`
+pub fn setDbOpt(lmdb: Lmdb, comptime db_name: []const u8, db_options: DbOption) void {
+    const env_flags = getEnvFlags(lmdb.db_env);
+    //Create the named database if it doesn't exist.
+    //This option is not allowed in a read-only transaction or a read-only environment
+    var db_flags: c_uint = 0;
+    if (env_flags == .rw and db_options.create_db_if_not_exist) {
+        db_flags |= mdb.MDB_CREATE;
+    }
+    //create_db_if_not_exist is not allowed in a read-only transaction or a read-only environment.
+    else if (env_flags == .ro or lmdb.db_txn_type == .ro) {
+        @panic("Can't create a new database " ++ db_name ++ " in a read-only environment or transaction");
+    }
+
+    if (db_options.enable_dupsort) db_flags |= mdb.MDB_DUPSORT;
+
+    var db_handle: mdb.MDB_dbi = undefined; //dbi Address where the new #MDB_dbi handle will be stored
+    const db_state = mdb.mdb_dbi_open(lmdb.db_txn, db_name.ptr, db_flags, &db_handle);
+    checkState(db_state) catch unreachable;
+}
+
+///Open a database in the environment.
+///The old database handle is returned if the database was already open.
+///A single transaction can open multiple databases
+pub fn openDb(lmdb: Lmdb, comptime db_name: []const u8) Lmdb {
+    assert(lmdb.db_txn != null);
+    assert(lmdb.db_txn_type != .not_set);
+
     var db_handle: mdb.MDB_dbi = undefined; //dbi Address where the new #MDB_dbi handle will be stored
     const DEFAULT_FLAGS = 0;
-    const db_state = mdb.mdb_dbi_open(db_txn, db_name.ptr, DEFAULT_FLAGS, &db_handle);
+    const db_state = mdb.mdb_dbi_open(lmdb.db_txn, db_name.ptr, DEFAULT_FLAGS, &db_handle);
     checkState(db_state) catch unreachable;
     return .{
         .db_env = lmdb.db_env,
-        .txn = db_txn,
-        .txn_type = lmdb.txn_type,
+        .db_txn = lmdb.db_txn,
+        .db_txn_type = lmdb.db_txn_type,
         .db_handle = db_handle,
     };
 }
 //TODO: make openDb consistent with setDbOpt and openDb
 ///open a different db in an already open transaction
-pub fn openNewDb(lmdb: Lmdb, db_txn_option: DbTxnOption, db_name: []const u8) Lmdb {
+pub fn openNewDb(lmdb: Lmdb, db_name: []const u8, db_flags: DbOption) Lmdb {
     //make sure a transaction has been created already
     ensureValidState(lmdb);
-    const handle = openDb(lmdb, db_txn_option, db_name);
+    setDbOpt(lmdb, db_name, db_flags);
+    const DEFAULT_FLAGS = 0;
+    const handle = openDb(lmdb, DEFAULT_FLAGS, db_name);
     return .{
         .db_env = lmdb.db_env,
-        .txn = lmdb.txn.?,
-        .txn_type = lmdb.txn_type,
+        .db_txn = lmdb.db_txn.?,
+        .db_txn_type = lmdb.db_txn_type,
         .db_handle = handle,
     };
 }
 
 pub inline fn ensureValidState(lmdb: Lmdb) void {
-    assert(lmdb.txn != null);
+    assert(lmdb.db_txn != null);
     assert(lmdb.db_handle != std.math.maxInt(c_uint));
 }
 
@@ -169,17 +223,17 @@ pub fn del(lmdb: Lmdb, key: []const u8, comptime del_opt: DeleteAction, data: an
 
     switch (del_opt) {
         .exact => {
-            const db_flags = try DbFlags.flags(lmdb);
+            const db_flags = DbFlags.flags(lmdb);
             if (db_flags.isDupSorted()) {
                 const serialized_data = serializer.serialize(data);
-                var del_data = dbValue(serialized_data);
+                var del_data = dbValue(serialized_data[0..]);
 
-                const del_state = mdb.mdb_del(lmdb.txn.?, lmdb.db_handle, &del_key, &del_data);
+                const del_state = mdb.mdb_del(lmdb.db_txn.?, lmdb.db_handle, &del_key, &del_data);
                 try checkState(del_state);
             } else unreachable;
         },
         .all, .single => {
-            const del_state = mdb.mdb_del(lmdb.txn.?, lmdb.db_handle, &del_key, null);
+            const del_state = mdb.mdb_del(lmdb.db_txn.?, lmdb.db_handle, &del_key, null);
             try checkState(del_state);
         },
     }
@@ -189,13 +243,13 @@ pub fn del(lmdb: Lmdb, key: []const u8, comptime del_opt: DeleteAction, data: an
 pub fn delDupsAlloc(lmdb: Lmdb, allocator: std.mem.Allocator, key: []const u8, data: anytype) !void {
     ensureValidState(lmdb);
     //This function will return MDB_NOTFOUND if the specified key/data pair is not in the database.
-    const db_flags = try DbFlags.flags(lmdb);
+    const db_flags = DbFlags.flags(lmdb);
     if (db_flags.isDupSorted()) {
         var del_key = dbKey(key);
         const serialized_data = serializer.serializeAlloc(allocator, data);
         var del_data = dbValue(serialized_data);
 
-        const del_state = mdb.mdb_del(lmdb.txn.?, lmdb.db_handle, &del_key, &del_data);
+        const del_state = mdb.mdb_del(lmdb.db_txn.?, lmdb.db_handle, &del_key, &del_data);
         try checkState(del_state);
     } else unreachable;
 }
@@ -207,7 +261,7 @@ const RemoveAction = enum(u1) {
 
 inline fn remove(lmdb: Lmdb, action: RemoveAction) void {
     //0 to empty the DB, 1 to delete it from the environment and close the DB handle.
-    const empty_db_state = mdb.mdb_drop(lmdb.txn.?, lmdb.db_handle, @intFromEnum(action));
+    const empty_db_state = mdb.mdb_drop(lmdb.db_txn.?, lmdb.db_handle, @intFromEnum(action));
     checkState(empty_db_state) catch unreachable;
 }
 
@@ -225,25 +279,6 @@ pub fn delDb(lmdb: Lmdb) void {
     remove(lmdb, .delete_and_close);
 }
 
-const DbFlags = struct {
-    flags: c_uint,
-    const Self = @This();
-
-    pub fn flags(lmdb: Lmdb) !DbFlags {
-        ensureValidState(lmdb);
-
-        var set_flags: c_uint = undefined;
-        const get_flags_state = mdb.mdb_dbi_flags(lmdb.txn, lmdb.db_handle, &set_flags);
-        try checkState(get_flags_state);
-
-        return .{ .flags = set_flags };
-    }
-
-    fn isDupSorted(self: Self) bool {
-        return if ((self.flags & mdb.MDB_DUPSORT) == mdb.MDB_DUPSORT) true else false;
-    }
-};
-
 const InsertFlags = enum {
     //allow duplicate key/data pairs
     dup_data,
@@ -256,7 +291,7 @@ const InsertFlags = enum {
 };
 
 fn insert(lmdb: Lmdb, key: []const u8, serialized_data: []const u8, flags: InsertFlags) !void {
-    const set_flags = try DbFlags.flags(lmdb);
+    const set_flags = DbFlags.flags(lmdb);
     const is_dup_sorted = set_flags.isDupSorted();
     const DEFAULT_BEHAVIOUR = 0;
     const ALLOW_DUP_DATA = 0;
@@ -301,7 +336,7 @@ fn mdbput(lmdb: Lmdb, insert_flags: c_uint, key: []const u8, serialized_data: []
     var insert_key = dbKey(key);
     var value_data = dbValue(serialized_data[0..]);
     const put_state = mdb.mdb_put(
-        lmdb.txn.?,
+        lmdb.db_txn.?,
         lmdb.db_handle,
         &insert_key,
         &value_data,
@@ -328,6 +363,7 @@ pub fn put(lmdb: Lmdb, key: []const u8, data: anytype) !void {
     try insert(lmdb, key, serialized_data[0..], .no_overwrite);
 }
 
+//TODO: move to it own module
 fn compress(serialized_data: []const u8, compressed_buf: [serialized_data.len]u8) *const [serialized_data.len]u8 {
     const allocator = std.heap.FixedBufferAllocator.init(&compressed_buf);
     const fbs = std.io.fixedBufferStream(compressed_buf);
@@ -404,7 +440,7 @@ pub fn updateAlloc(lmdb: Lmdb, allocator: std.mem.Allocator, key: []const u8, da
 pub fn commitTxns(lmdb: Lmdb) void {
     ensureValidState(lmdb);
 
-    const commit_state = mdb.mdb_txn_commit(lmdb.txn.?);
+    const commit_state = mdb.mdb_txn_commit(lmdb.db_txn.?);
     checkState(commit_state) catch unreachable;
 }
 
@@ -419,14 +455,14 @@ pub fn doneReading(lmdb: Lmdb) void {
 ///it will update the current read-only transaction to see the changes made in the read-write transaction
 pub fn updateRead(lmdb: Lmdb) void {
     ensureValidState(lmdb);
-    mdb.mdb_txn_reset(lmdb.txn.?);
-    const rewew_state = mdb.mdb_txn_renew(lmdb.txn.?);
+    mdb.mdb_txn_reset(lmdb.db_txn.?);
+    const rewew_state = mdb.mdb_txn_renew(lmdb.db_txn.?);
     checkState(rewew_state) catch unreachable;
 }
 
 ///cancel/discard all transaction on the current db handle
 fn abortTxns(lmdb: Lmdb) void {
-    mdb.mdb_txn_abort(lmdb.txn.?);
+    mdb.mdb_txn_abort(lmdb.db_txn.?);
 }
 
 ///This is any unsafe cast which discards const
@@ -442,7 +478,7 @@ pub fn get(lmdb: Lmdb, comptime T: type, key: []const u8) !T {
 
     var get_key = dbKey(key);
     const get_state = mdb.mdb_get(
-        lmdb.txn.?,
+        lmdb.db_txn.?,
         lmdb.db_handle,
         &get_key,
         &data,
@@ -459,7 +495,7 @@ pub fn getAlloc(lmdb: Lmdb, comptime T: type, fba: std.mem.Allocator, key: []con
     var data: Val = undefined;
     var get_key = dbKey(key);
     const get_state = mdb.mdb_get(
-        lmdb.txn.?,
+        lmdb.db_txn.?,
         lmdb.db_handle,
         &get_key,
         &data,
