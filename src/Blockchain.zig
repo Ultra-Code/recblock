@@ -200,9 +200,9 @@ fn newUTx(self: BlockChain, utxo_cache: UTXOcache, amount: usize, from: Wallets.
     const spendable_txns = utxo_cache.findSpendableOutputs(Wallet.getPubKeyHash(from), amount);
     const accumulated_amount = spendable_txns.accumulated_amount;
     var unspent_output = spendable_txns.unspent_output;
-    std.log.debug("spendable amount is {d}", .{accumulated_amount});
 
     if (accumulated_amount < amount) {
+        std.log.err("spendable amount is {d}", .{accumulated_amount});
         std.log.err("not enough funds to transfer RBC {d} from '{s}' to '{s}'", .{ amount, from, to });
         std.process.exit(@intFromEnum(ExitCodes.insufficient_wallet_balance));
     }

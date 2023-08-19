@@ -48,7 +48,7 @@ pub fn build(b: *Build) void {
     });
     exe.addModule("s2s", s2s_module);
     exe.linkLibrary(lmdb);
-    exe.addIncludePath(LMDB_PATH);
+    exe.addIncludePath(.{ .path = LMDB_PATH });
     b.installArtifact(exe);
     exe.stack_size = 1024 * 1024 * 64;
 
@@ -86,7 +86,7 @@ pub fn build(b: *Build) void {
     });
     exe_tests.addModule("s2s", s2s_module);
     exe_tests.linkLibrary(lmdb);
-    exe_tests.addIncludePath(LMDB_PATH);
+    exe_tests.addIncludePath(.{ .path = LMDB_PATH });
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&lmdb.step);
