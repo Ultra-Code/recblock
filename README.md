@@ -23,7 +23,9 @@ $ zig build -Drelease-fast
 
 ## HOW TO USE PROGRAM
 
+
 ### create a wallet
+
 ```zsh
 $ zig build run -- createwallet
 
@@ -37,6 +39,7 @@ $ zig-dev build run -- createwallet
 Your new address is 'AZqc8JTbSu1xMQQD2TcVRZnj5oji5oIOLQ'
 ```
 ### create a chain
+
 ```zsh
 # create a blockchain at Gaddy's wallet
 $ zig-dev build run -- createchain AZqc8JTbSu1xMQQD2TcVRZnj5oji5oIOLQ
@@ -49,6 +52,7 @@ info: You get a reward of RBC 10 for mining the coinbase transaction
 ```
 
 ### get balance
+
 ```zsh
 $ zig-dev build run -- getbalance AZqc8JTbSu1xMQQD2TcVRZnj5oji5oIOLQ
 
@@ -62,6 +66,7 @@ $ zig-dev build run -- getbalance AY0IZ21T7XFFEPwoiVxAbnYMxuZNshdRzg
 ```
 
 ### send RBC to another Address
+
 ```zsh
 $ zig-dev build run -- send --amount 7 --from AZqc8JTbSu1xMQQD2TcVRZnj5oji5oIOLQ --to AY0IZ21T7XFFEPwoiVxAbnYMxuZNshdRzg
 
@@ -73,6 +78,7 @@ done sending RBC 7 from 'AZqc8JTbSu1xMQQD2TcVRZnj5oji5oIOLQ' to 'AY0IZ21T7XFFEPw
 ```
 
 ### print the blockchain ledger after performing some transactions
+
 ```zsh
 $ zig build run -- printchain
 
@@ -114,6 +120,7 @@ info: done
 ```
 
 ### print the list of valid addresses for transactions
+
 ```zsh
 $ zig build run -- listaddress
 
@@ -126,3 +133,7 @@ ATM0mGFtqU0lsUafDFKgBSWARA6bBrPClA
 info: address 2
 AT_YZ3gWStL1bVZtFVbd4pkxjcqul9gX3g
 ```
+
+## 👏 Credit
+
+**A lot of inspiration and learning came from _[jeiwan.net/](https://jeiwan.net/)_**
