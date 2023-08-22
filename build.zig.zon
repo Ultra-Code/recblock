@@ -3,8 +3,8 @@
     .version = "0.1.0",
     .dependencies = .{
         .s2s = .{
-            .url = "https://github.com/ziglibs/s2s/archive/f8dc146601fd91d372c1510e74adc2c839eaf41e.tar.gz",
-            .hash = "1220789c7c650cc65b820a4457b02f0e057ace507ae72220a860c36ef430481e2912",
+            .url = "https://github.com/ziglibs/s2s/archive/f95da7705f0ab8535d7e3e0af800116a8c4c58a2.tar.gz",
+            .hash = "12205ec5ab2bc745cd17c2b7e09da5b5d641f2a1ff019f342bce1586323acc572293",
         },
     },
 }
