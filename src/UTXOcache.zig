@@ -54,8 +54,7 @@ pub fn findSpendableOutputs(
     accumulated_amount: usize,
     unspent_output: TxMap,
 } {
-    const txn = utxo_cache.db.startTxn(.ro);
-    const db = txn.openDb(UTXO_DB);
+    const db = utxo_cache.db.startTxn(.ro).openDb(UTXO_DB);
     defer db.doneReading();
 
     const cursor = Cursor.init(db);
@@ -90,8 +89,7 @@ pub fn findSpendableOutputs(
 
 ///find unspent transaction outputs
 pub fn findUnlockableOutputs(utxo_cache: UTXOcache, pub_key_hash: Wallets.PublicKeyHash) []const Transaction.TxOutput {
-    const txn = utxo_cache.db.startTxn(.ro);
-    const db = txn.openDb(UTXO_DB);
+    const db = utxo_cache.db.startTxn(.ro).openDb(UTXO_DB);
     defer db.doneReading();
 
     const cursor = Cursor.init(db);
@@ -116,12 +114,8 @@ pub fn findUnlockableOutputs(utxo_cache: UTXOcache, pub_key_hash: Wallets.Public
 }
 
 pub fn update(utxo_cache: UTXOcache, block: Block) void {
-    const txn = utxo_cache.db.startTxn(.rw);
-    const db = txn.openDb(UTXO_DB);
+    const db = utxo_cache.db.startTxn(.rw).openDb(UTXO_DB);
     defer db.commitTxns();
-
-    const cursor = Cursor.init(db);
-    defer cursor.deinit();
 
     var buffer: [1024 * 1024]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&buffer);
@@ -147,7 +141,9 @@ pub fn update(utxo_cache: UTXOcache, block: Block) void {
                 //cache
                 if (updated_output.items.len == 0) {
                     //TODO: check that this doesn't affect the preoviously inserted outputs
-                    db.del(txin.out_id[0..], .exact, {}) catch unreachable;
+                    //I suspect this fuction is the cause of the current bug so I have to test and fuzz my understanding
+                    //hear thoroughly
+                    db.del(txin.out_id[0..], .single, {}) catch unreachable;
                 } else {
                     //update the cache with the new output_list of the txin.out_id
                     db.updateAlloc(allocator, txin.out_id[0..], updated_output.items) catch unreachable;
@@ -164,32 +160,29 @@ pub fn update(utxo_cache: UTXOcache, block: Block) void {
         }
 
         //TODO: maybe we should put value rather
-        db.putAlloc(allocator, tx.id[0..], uoutput.items) catch unreachable;
-        // |key_data_already_exist| switch (key_data_already_exist) {
-        //     //when the exact same key and data pair already exist in the db
-        //     error.KeyAlreadyExist => {
-        //         const previous_outputs = txn.getAlloc([]const Transaction.TxOutput, allocator, tx.id[0..]) catch unreachable;
-        //         var previous_value_sum: usize = 0;
-        //
-        //         for (previous_outputs) |poutputs| {
-        //             previous_value_sum += poutputs.value;
-        //         }
-        //         var current_value_sum = previous_value_sum;
-        //         for (uoutput.items) |poutputs| {
-        //             current_value_sum += poutputs.value;
-        //         }
-        //
-        //         const new_output_with_all_value = Transaction.TxOutput{
-        //             .value = current_value_sum,
-        //             .pub_key_hash = previous_outputs[0].pub_key_hash,
-        //         };
-        //         txn.updateAlloc(allocator, tx.id[0..], &.{new_output_with_all_value}) catch unreachable;
-        //     },
-        //     else => unreachable,
-        // };
-        // cursor.print("before txn.putDupAlloc");
-        // db.putDupAlloc(allocator, tx.id[0..], uoutput.items, true) catch unreachable;
-        // cursor.print("after txn.putDupAlloc");
+        //check reference guide to make sure I'm on the right path
+        db.putAlloc(allocator, tx.id[0..], uoutput.items) catch |key_data_already_exist| switch (key_data_already_exist) {
+            //when the exact same key and data pair already exist in the db
+            error.KeyAlreadyExist => {
+                const previous_outputs = db.getAlloc([]const Transaction.TxOutput, allocator, tx.id[0..]) catch unreachable;
+                var previous_value_sum: usize = 0;
+
+                for (previous_outputs) |poutputs| {
+                    previous_value_sum += poutputs.value;
+                }
+                var current_value_sum = previous_value_sum;
+                for (uoutput.items) |poutputs| {
+                    current_value_sum += poutputs.value;
+                }
+
+                const new_output_with_all_value = Transaction.TxOutput{
+                    .value = current_value_sum,
+                    .pub_key_hash = previous_outputs[0].pub_key_hash,
+                };
+                db.updateAlloc(allocator, tx.id[0..], &.{new_output_with_all_value}) catch unreachable;
+            },
+            else => unreachable,
+        };
     }
 }
 
