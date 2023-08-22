@@ -32,5 +32,12 @@ pub fn main() !void {
 }
 
 test {
+    _ = @import("Lmdb.zig");
+    _ = @import("LmdbCursor.zig");
+    _ = @import("Wallets.zig");
+    _ = @import("Block.zig");
+    _ = @import("Blockchain.zig");
+    _ = @import("Transaction.zig");
+    _ = @import("UTXOcache.zig");
     std.testing.refAllDecls(@This());
 }

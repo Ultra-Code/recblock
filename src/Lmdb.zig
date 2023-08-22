@@ -645,12 +645,12 @@ test "test db key:str / value:str" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const db_path = try std.cstr.addNullByte(allocator, try tmp.dir.realpathAlloc(allocator, "."));
+    const db_path = try allocator.dupeZ(u8, try tmp.dir.realpathAlloc(allocator, "."));
 
-    var dbh = initdb(db_path, .rw);
+    var dbh = initdb(db_path, .rw).openDb(BLOCK_DB);
     defer deinitdb(dbh);
 
-    const wtxn = dbh.startTxn(.rw, BLOCK_DB);
+    const wtxn = dbh.startTxn(.rw);
 
     const val: [5]u8 = "value".*;
     {
@@ -658,20 +658,20 @@ test "test db key:str / value:str" {
         defer wtxn.commitTxns();
     }
 
-    const rtxn = dbh.startTxn(.ro, BLOCK_DB);
+    const rtxn = dbh.startTxn(.ro);
     {
         try testing.expectEqualSlices(u8, "value", (try rtxn.get([5]u8, "key"))[0..]);
         defer rtxn.doneReading();
     }
 
-    var slicetxn = dbh.startTxn(.rw, BLOCK_DB);
+    var slicetxn = dbh.startTxn(.rw);
     const slice_data = [_][]const u8{ "hello", "serializer" };
     {
         try slicetxn.putAlloc(allocator, "slice", &slice_data);
         defer slicetxn.commitTxns();
     }
 
-    slicetxn = dbh.startTxn(.ro, BLOCK_DB);
+    slicetxn = dbh.startTxn(.ro);
     {
         const deserialized_slice_data = try slicetxn.getAlloc([2][]const u8, allocator, "slice");
         for (slice_data, 0..) |str, index| {
@@ -692,12 +692,12 @@ test "test db update" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const db_path = try std.cstr.addNullByte(allocator, try tmp.dir.realpathAlloc(allocator, "."));
+    const db_path = try allocator.dupeZ(u8, try tmp.dir.realpathAlloc(allocator, "."));
 
-    var dbh = initdb(db_path, .rw);
+    var dbh = initdb(db_path, .rw).openDb(BLOCK_DB);
     defer deinitdb(dbh);
 
-    const txn = dbh.startTxn(.rw, BLOCK_DB);
+    const txn = dbh.startTxn(.rw);
     defer txn.commitTxns();
 
     const Data = struct {
@@ -721,6 +721,8 @@ test "test db update" {
 
 //TODO: review the test below for it relevance now
 test "serialization/deserialization data" {
+    const s2s = @import("s2s");
+
     const Data = struct {
         char: [21]u8,
         int: u8,
@@ -738,11 +740,11 @@ test "serialization/deserialization data" {
     defer file.close();
 
     const writer = file.writer();
-    try serializer.serialize(writer, Data, data);
+    try s2s.serialize(writer, Data, data);
     try file.seekTo(0);
 
     const reader = file.reader();
-    const deserialized_data = try serializer.deserialize(reader, Data);
+    const deserialized_data = try s2s.deserialize(reader, Data);
 
     try testing.expectEqualSlices(u8, data.char[0..], deserialized_data.char[0..]);
     try testing.expectEqualSlices(u8, data.ochar[0..], deserialized_data.ochar[0..]);
@@ -750,6 +752,7 @@ test "serialization/deserialization data" {
 }
 
 test "serialization/deserialization packed data" {
+    const s2s = @import("s2s");
     const Data = extern struct {
         char: [21]u8,
         int: u8,
@@ -768,11 +771,11 @@ test "serialization/deserialization packed data" {
     defer file.close();
 
     const writer = file.writer();
-    try serializer.serialize(writer, Data, data);
+    try s2s.serialize(writer, Data, data);
     try file.seekTo(0);
 
     const reader = file.reader();
-    const deserialized_data = try serializer.deserialize(reader, Data);
+    const deserialized_data = try s2s.deserialize(reader, Data);
 
     try testing.expectEqualSlices(u8, data.char[0..], deserialized_data.char[0..]);
     try testing.expectEqualSlices(u8, data.ochar[0..], deserialized_data.ochar[0..]);

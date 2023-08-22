@@ -303,7 +303,6 @@ pub fn sendValue(self: *BlockChain, amount: usize, from: Wallets.Address, to: Wa
 }
 
 test "getBalance , sendValue" {
-    if (true) return error.SkipZigTest;
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -314,7 +313,7 @@ test "getBalance , sendValue" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const db_path = try std.cstr.addNullByte(allocator, try tmp.dir.realpathAlloc(allocator, "."));
+    const db_path = try allocator.dupeZ(u8, try tmp.dir.realpathAlloc(allocator, "."));
 
     var db = Lmdb.initdb(db_path, .rw);
     defer db.deinitdb();
@@ -323,8 +322,9 @@ test "getBalance , sendValue" {
     var wallets = Wallets.initWallets(allocator, wallet_path);
 
     const genesis_wallet = wallets.createWallet();
-    var bc = newChain(db, allocator, genesis_wallet, wallets.wallet_path);
+    var bc = newChain(db, allocator, genesis_wallet);
 
+    if (true) return error.SkipZigTest;
     //a reward of 10 RBC is given for mining the coinbase
     try std.testing.expectEqual(@as(usize, 10), bc.getBalance(genesis_wallet));
 
