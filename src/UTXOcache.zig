@@ -179,7 +179,7 @@ pub fn update(utxo_cache: UTXOcache, block: Block) void {
                     .value = current_value_sum,
                     .pub_key_hash = previous_outputs[0].pub_key_hash,
                 };
-                db.updateAlloc(allocator, tx.id[0..], &.{new_output_with_all_value}) catch unreachable;
+                db.updateAlloc(allocator, tx.id[0..], @as([]const Transaction.TxOutput, &.{new_output_with_all_value})) catch unreachable;
             },
             else => unreachable,
         };
