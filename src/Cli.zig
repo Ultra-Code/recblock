@@ -69,9 +69,8 @@ pub fn run(self: Cli) void {
 
                                     var bc = BlockChain.getChain(db_env, self.arena);
 
-                                    bc.sendValue(amount, from_address, to_address);
-
                                     const cache = UTXOcache.init(bc.db, bc.arena);
+                                    bc.sendValue(cache, amount, from_address, to_address);
 
                                     std.debug.print("done sending RBC {d} from '{s}' to '{s}'\n", .{ amount, from_address, to_address });
                                     std.debug.print("'{[from_address]s}' now has a balance of RBC {[from_balance]d} and '{[to_address]s}' a balance of RBC {[to_balance]d}\n", .{

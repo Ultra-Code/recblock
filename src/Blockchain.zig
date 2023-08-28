@@ -278,9 +278,9 @@ fn verifyTx(self: BlockChain, tx: Transaction) bool {
     return tx.verify(prev_txs, fba.allocator());
 }
 
-pub fn sendValue(self: *BlockChain, amount: usize, from: Wallets.Address, to: Wallets.Address) void {
+pub fn sendValue(self: *BlockChain, cache: UTXOcache, amount: usize, from: Wallets.Address, to: Wallets.Address) void {
     assert(amount > 0);
-    assert(!std.mem.eql(u8, &from, &to));
+    assert(!std.mem.eql(u8, from[0..], to[0..]));
 
     if (!Wallet.validateAddress(from)) {
         std.log.err("sender address {s} is invalid", .{from});
@@ -290,7 +290,7 @@ pub fn sendValue(self: *BlockChain, amount: usize, from: Wallets.Address, to: Wa
         std.log.err("recipient address {s} is invalid", .{to});
         std.process.exit(@intFromEnum(ExitCodes.invalid_wallet_address));
     }
-    const cache = UTXOcache.init(self.db, self.arena);
+
     var new_transaction = self.newUTx(cache, amount, from, to);
     //The reward is just a coinbase transaction. When a mining node starts mining a new block,
     //it takes transactions from the queue and prepends a coinbase transaction to them.
