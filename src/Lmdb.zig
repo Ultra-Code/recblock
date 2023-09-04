@@ -146,7 +146,10 @@ const DbFlags = struct {
 //are stored in the DB record and retrieved when the DB is opened.
 //Flags specified to mdb_dbi_open at any other time are ignored.
 ///set flags `db_options` to be used for the opened db `db_name`
+///NOTE: `setDbOpt` must be called when db is first `initdb` in a process
 pub fn setDbOpt(lmdb: Lmdb, comptime db_name: []const u8, db_options: DbOption) void {
+    ensureValidTxn(lmdb);
+
     const env_flags = getEnvFlags(lmdb.db_env);
     //Create the named database if it doesn't exist.
     //This option is not allowed in a read-only transaction or a read-only environment
@@ -652,10 +655,10 @@ test "test db key:str / value:str" {
 
     const db_path = try allocator.dupeZ(u8, try tmp.dir.realpathAlloc(allocator, "."));
 
-    var dbh = initdb(db_path, .rw).openDb(BLOCK_DB);
+    var dbh = initdb(db_path, .rw);
     defer deinitdb(dbh);
 
-    const wtxn = dbh.startTxn(.rw);
+    const wtxn = dbh.startTxn(.rw).openDb(BLOCK_DB);
 
     const val: [5]u8 = "value".*;
     {
@@ -663,7 +666,7 @@ test "test db key:str / value:str" {
         defer wtxn.commitTxns();
     }
 
-    const rtxn = dbh.startTxn(.ro);
+    const rtxn = dbh.startTxn(.ro).openDb(BLOCK_DB);
     {
         try testing.expectEqualSlices(u8, "value", (try rtxn.get([5]u8, "key"))[0..]);
         defer rtxn.doneReading();
