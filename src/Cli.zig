@@ -1,6 +1,9 @@
 const std = @import("std");
 const BlockChain = @import("Blockchain.zig");
 const Wallets = @import("Wallets.zig");
+const Address = Wallets.Address;
+const mem = std.mem;
+const Allocator = mem.Allocator;
 const Iterator = @import("Iterator.zig");
 const Lmdb = @import("Lmdb.zig");
 const UTXOcache = @import("UTXOcache.zig");
@@ -17,10 +20,63 @@ const Cmd = enum {
     help,
 };
 
-arena: std.mem.Allocator,
+arena: Allocator,
 
-pub fn init(arena: std.mem.Allocator) Cli {
+pub fn init(arena: Allocator) Cli {
     return .{ .arena = arena };
+}
+
+//TODO: the whole system interface should by accessed from cli for consistency
+pub fn createchain(db_env: Lmdb, utxo_cache: UTXOcache, arena: Allocator, bc_address: Address) void {
+    const bc = BlockChain.newChain(db_env, arena, bc_address);
+
+    utxo_cache.reindex(bc);
+}
+
+pub fn sendAmount(db: Lmdb, cache: UTXOcache, arena: Allocator, amount: usize, from_address: Address, to_address: Address) void {
+    var bc = BlockChain.getChain(db, arena);
+
+    bc.sendValue(cache, amount, from_address, to_address);
+}
+
+pub fn getBalance(cache: UTXOcache, users_address: Address) usize {
+    const balance = cache.getBalance(users_address);
+    return balance;
+}
+
+pub fn printchain(db: Lmdb, arena: Allocator) void {
+    const bc = BlockChain.getChain(db, arena);
+
+    var chain_iter = BlockIterator.iterator(bc.arena, bc.db, bc.last_hash);
+    chain_iter.print();
+}
+
+pub fn createwalletWithPath(arena: Allocator, wallet_path: []const u8) Address {
+    const wallets = Wallets.initWallets(arena, wallet_path);
+    const wallet_address = wallets.createWallet();
+    return wallet_address;
+}
+pub fn createwallet(arena: Allocator) Address {
+    const wallets = Wallets.initWallets(arena, WALLET_STORAGE);
+    const wallet_address = wallets.createWallet();
+    return wallet_address;
+}
+
+pub fn list_wallet_addresses(wallets: Wallets) void {
+    const address_list = wallets.getAddresses();
+
+    for (address_list, 0..) |address, index| {
+        std.log.info("address {}\n{s}\n", .{ index, address });
+    }
+}
+
+pub fn listaddress(arena: Allocator) void {
+    const wallets = Wallets.getWallets(arena, WALLET_STORAGE);
+    const address_list = wallets.getAddresses();
+
+    for (address_list, 0..) |address, index| {
+        std.log.info("address {}\n{s}\n", .{ index, address });
+    }
 }
 
 pub fn run(self: Cli) void {
@@ -33,44 +89,41 @@ pub fn run(self: Cli) void {
     _ = itr.skip(); //skip name of program
 
     while (itr.next()) |argv| {
-        if (std.mem.eql(u8, argv, "clean")) {
+        if (mem.eql(u8, argv, "clean")) {
             std.fs.cwd().deleteTree("db") catch unreachable;
             return;
         }
 
-        var db_env = Lmdb.initdb("db", .rw);
+        const db_env = Lmdb.initdb("db", .rw);
         defer db_env.deinitdb();
 
-        if (std.mem.eql(u8, argv, "createchain")) {
+        const cache = UTXOcache.init(db_env, self.arena);
+
+        if (mem.eql(u8, argv, "createchain")) {
             const chain_name = itr.next();
 
             if (chain_name) |name| {
-                const bc_address = std.mem.bytesAsSlice(Wallets.Address, name)[0];
-                const bc = BlockChain.newChain(db_env, self.arena, bc_address);
+                const bc_address = mem.bytesAsSlice(Address, name)[0];
 
-                const utxo_cache = UTXOcache.init(bc.db, self.arena);
-                utxo_cache.reindex(bc);
+                createchain(db_env, cache, self.arena, bc_address);
             } else {
                 printUsage(.createchain);
             }
-        } else if (std.mem.eql(u8, argv, "send")) {
+        } else if (mem.eql(u8, argv, "send")) {
             if (itr.next()) |amount_option| {
-                if (std.mem.eql(u8, amount_option, "--amount")) {
+                if (mem.eql(u8, amount_option, "--amount")) {
                     const amount_value = itr.next().?;
 
                     if (itr.next()) |from_option| {
-                        if (std.mem.eql(u8, from_option, "--from")) {
-                            const from_address = std.mem.bytesAsSlice(Wallets.Address, itr.next().?)[0];
+                        if (mem.eql(u8, from_option, "--from")) {
+                            const from_address = mem.bytesAsSlice(Address, itr.next().?)[0];
 
                             if (itr.next()) |to_option| {
-                                if (std.mem.eql(u8, to_option, "--to")) {
-                                    const to_address = std.mem.bytesAsSlice(Wallets.Address, itr.next().?)[0];
+                                if (mem.eql(u8, to_option, "--to")) {
+                                    const to_address = mem.bytesAsSlice(Address, itr.next().?)[0];
                                     const amount = std.fmt.parseUnsigned(usize, amount_value, 10) catch unreachable;
 
-                                    var bc = BlockChain.getChain(db_env, self.arena);
-
-                                    const cache = UTXOcache.init(bc.db, bc.arena);
-                                    bc.sendValue(cache, amount, from_address, to_address);
+                                    sendAmount(db_env, cache, self.arena, amount, from_address, to_address);
 
                                     std.debug.print("done sending RBC {d} from '{s}' to '{s}'\n", .{ amount, from_address, to_address });
                                     std.debug.print("'{[from_address]s}' now has a balance of RBC {[from_balance]d} and '{[to_address]s}' a balance of RBC {[to_balance]d}\n", .{
@@ -91,32 +144,23 @@ pub fn run(self: Cli) void {
             } else {
                 printUsage(.send);
             }
-        } else if (std.mem.eql(u8, argv, "getbalance")) {
+        } else if (mem.eql(u8, argv, "getbalance")) {
             if (itr.next()) |address| {
-                const users_address = std.mem.bytesAsSlice(Wallets.Address, address)[0];
+                const users_address = mem.bytesAsSlice(Address, address)[0];
 
-                const cache = UTXOcache.init(db_env, self.arena);
-                const balance = cache.getBalance(users_address);
+                const balance = getBalance(cache, users_address);
+
                 std.debug.print("'{[address]s}' has a balance of RBC {[balance]d}\n", .{ .address = users_address, .balance = balance });
             } else {
                 printUsage(.getbalance);
             }
-        } else if (std.mem.eql(u8, argv, "printchain")) {
-            const bc = BlockChain.getChain(db_env, self.arena);
-
-            var chain_iter = BlockIterator.iterator(bc.arena, bc.db, bc.last_hash);
-            chain_iter.print();
-        } else if (std.mem.eql(u8, argv, "createwallet")) {
-            const wallets = Wallets.initWallets(self.arena, WALLET_STORAGE);
-            const wallet_address = wallets.createWallet();
+        } else if (mem.eql(u8, argv, "printchain")) {
+            printchain(db_env, self.arena);
+        } else if (mem.eql(u8, argv, "createwallet")) {
+            const wallet_address = createwallet(self.arena);
             std.debug.print("Your new address is '{[address]s}'\n", .{ .address = wallet_address });
-        } else if (std.mem.eql(u8, argv, "listaddress")) {
-            const wallets = Wallets.getWallets(self.arena, WALLET_STORAGE);
-            const address_list = wallets.getAddresses();
-
-            for (address_list, 0..) |address, index| {
-                std.log.info("address {}\n{s}\n", .{ index, address });
-            }
+        } else if (mem.eql(u8, argv, "listaddress")) {
+            listaddress(self.arena);
         } else {
             printUsage(.help);
         }
