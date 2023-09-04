@@ -84,11 +84,13 @@ pub fn build(b: *Build) void {
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
     });
+    const test_run = b.addRunArtifact(exe_tests);
+
     exe_tests.addModule("s2s", s2s_module);
     exe_tests.linkLibrary(lmdb);
     exe_tests.addIncludePath(.{ .path = LMDB_PATH });
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&lmdb.step);
-    test_step.dependOn(&exe_tests.step);
+    test_step.dependOn(&test_run.step);
 }

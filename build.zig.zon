@@ -4,7 +4,7 @@
     .dependencies = .{
         .s2s = .{
             .url = "https://github.com/ziglibs/s2s/archive/f1d0508cc47b2af353658d4e52616a45aafa91ce.tar.gz",
-            .hash = "1220206c698a1890d742a8b98acb16db99275d16f2e7fe2046c3d8f2249ed267ca71",
+            .hash = "122084b614cc4ac1e0694812d8863446840a314d8654afebad9b6966ebe6792931b1",
         },
     },
 }
