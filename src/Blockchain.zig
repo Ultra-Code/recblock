@@ -319,23 +319,25 @@ test "getBalance , sendValue" {
     defer db.deinitdb();
 
     const wallet_path = try std.fmt.allocPrint(allocator, "zig-cache/tmp/{s}/wallet.dat", .{tmp.sub_path[0..]});
-    var wallets = Wallets.initWallets(allocator, wallet_path);
 
-    const genesis_wallet = wallets.createWallet();
-    var bc = newChain(db, allocator, genesis_wallet);
+    const Cli = @import("Cli.zig");
+    const cache = UTXOcache.init(db, allocator);
 
     if (true) return error.SkipZigTest;
+    const genesis_wallet = Cli.createwalletWithPath(allocator, wallet_path);
+    Cli.createchain(db, cache, allocator, genesis_wallet);
+
     //a reward of 10 RBC is given for mining the coinbase
-    try std.testing.expectEqual(@as(usize, 10), bc.getBalance(genesis_wallet));
+    try std.testing.expectEqual(@as(usize, 10), cache.getBalance(genesis_wallet));
 
-    const my_wallet = wallets.createWallet();
-    bc.sendValue(7, genesis_wallet, my_wallet);
+    const my_wallet = Cli.createwalletWithPath(allocator, wallet_path);
+    Cli.sendAmount(db, cache, allocator, 7, genesis_wallet, my_wallet);
 
-    try std.testing.expectEqual(@as(usize, 3), bc.getBalance(genesis_wallet));
-    try std.testing.expectEqual(@as(usize, 7), bc.getBalance(my_wallet));
+    try std.testing.expectEqual(@as(usize, 13), cache.getBalance(genesis_wallet));
+    try std.testing.expectEqual(@as(usize, 7), cache.getBalance(my_wallet));
 
-    bc.sendValue(2, my_wallet, genesis_wallet);
+    Cli.sendAmount(db, cache, allocator, 2, my_wallet, genesis_wallet);
 
-    try std.testing.expectEqual(@as(usize, 5), bc.getBalance(my_wallet));
-    try std.testing.expectEqual(@as(usize, 5), bc.getBalance(genesis_wallet));
+    try std.testing.expectEqual(@as(usize, 15), cache.getBalance(my_wallet));
+    try std.testing.expectEqual(@as(usize, 15), cache.getBalance(genesis_wallet));
 }

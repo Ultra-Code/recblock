@@ -139,13 +139,13 @@ test "newBlock" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const Wallets = @import("Wallets.zig").Wallets;
     const wallet_path = try std.fmt.allocPrint(allocator, "zig-cache/tmp/{s}/wallet.dat", .{tmp.sub_path[0..]});
 
-    var wallets = Wallets.initWallets(allocator, wallet_path);
-    const genesis_wallet = wallets.createWallet();
+    const Cli = @import("Cli.zig");
 
-    var coinbase = Transaction.initCoinBaseTx(allocator, genesis_wallet, wallets.wallet_path);
+    const genesis_wallet = Cli.createwalletWithPath(allocator, wallet_path);
+
+    var coinbase = Transaction.initCoinBaseTx(allocator, genesis_wallet, wallet_path);
     var genesis_block = Block.genesisBlock(allocator, coinbase);
     var new_block = newBlock(allocator, genesis_block.hash, &.{coinbase});
 
