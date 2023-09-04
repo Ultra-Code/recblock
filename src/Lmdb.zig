@@ -170,8 +170,7 @@ pub fn setDbOpt(lmdb: Lmdb, comptime db_name: []const u8, db_options: DbOption) 
 ///The old database handle is returned if the database was already open.
 ///A single transaction can open multiple databases
 pub fn openDb(lmdb: Lmdb, comptime db_name: []const u8) Lmdb {
-    assert(lmdb.db_txn != null);
-    assert(lmdb.db_txn_type != .not_set);
+    ensureValidTxn(lmdb);
 
     var db_handle: mdb.MDB_dbi = undefined; //dbi Address where the new #MDB_dbi handle will be stored
     const DEFAULT_FLAGS = 0;
@@ -188,7 +187,8 @@ pub fn openDb(lmdb: Lmdb, comptime db_name: []const u8) Lmdb {
 ///open a different db in an already open transaction
 pub fn openNewDb(lmdb: Lmdb, db_name: []const u8, db_flags: DbOption) Lmdb {
     //make sure a transaction has been created already
-    ensureValidState(lmdb);
+    ensureValidTxn(lmdb);
+
     setDbOpt(lmdb, db_name, db_flags);
     const DEFAULT_FLAGS = 0;
     const handle = openDb(lmdb, DEFAULT_FLAGS, db_name);
@@ -203,6 +203,11 @@ pub fn openNewDb(lmdb: Lmdb, db_name: []const u8, db_flags: DbOption) Lmdb {
 pub inline fn ensureValidState(lmdb: Lmdb) void {
     assert(lmdb.db_txn != null);
     assert(lmdb.db_handle != std.math.maxInt(c_uint));
+}
+
+pub inline fn ensureValidTxn(lmdb: Lmdb) void {
+    ensureValidState(lmdb);
+    assert(lmdb.db_txn_type != .not_set);
 }
 
 const DeleteAction = enum {
