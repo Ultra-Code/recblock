@@ -3,7 +3,10 @@ const BlockChain = @import("Blockchain.zig");
 const Wallets = @import("Wallets.zig");
 const Iterator = @import("Iterator.zig");
 const Lmdb = @import("Lmdb.zig");
-const WALLET_STORAGE = "db/wallet.dat";
+const UTXOcache = @import("UTXOcache.zig");
+const ExitCodes = @import("utils.zig").ExitCodes;
+const BlockIterator = Iterator.BlockIterator;
+const WALLET_STORAGE = BlockChain.WALLET_STORAGE;
 
 const Cli = @This();
 
@@ -43,7 +46,10 @@ pub fn run(self: Cli) void {
 
             if (chain_name) |name| {
                 const bc_address = std.mem.bytesAsSlice(Wallets.Address, name)[0];
-                _ = BlockChain.newChain(db_env, self.arena, bc_address, WALLET_STORAGE);
+                const bc = BlockChain.newChain(db_env, self.arena, bc_address);
+
+                const utxo_cache = UTXOcache.init(bc.db, self.arena);
+                utxo_cache.reindex(bc);
             } else {
                 printUsage(.createchain);
             }
@@ -63,14 +69,15 @@ pub fn run(self: Cli) void {
 
                                     var bc = BlockChain.getChain(db_env, self.arena);
 
-                                    bc.sendValue(amount, from_address, to_address);
+                                    const cache = UTXOcache.init(bc.db, bc.arena);
+                                    bc.sendValue(cache, amount, from_address, to_address);
 
                                     std.debug.print("done sending RBC {d} from '{s}' to '{s}'\n", .{ amount, from_address, to_address });
                                     std.debug.print("'{[from_address]s}' now has a balance of RBC {[from_balance]d} and '{[to_address]s}' a balance of RBC {[to_balance]d}\n", .{
                                         .from_address = from_address,
-                                        .from_balance = bc.getBalance(from_address),
+                                        .from_balance = cache.getBalance(from_address),
                                         .to_address = to_address,
-                                        .to_balance = bc.getBalance(to_address),
+                                        .to_balance = cache.getBalance(to_address),
                                     });
                                 }
                             }
@@ -86,9 +93,10 @@ pub fn run(self: Cli) void {
             }
         } else if (std.mem.eql(u8, argv, "getbalance")) {
             if (itr.next()) |address| {
-                const bc = BlockChain.getChain(db_env, self.arena);
                 const users_address = std.mem.bytesAsSlice(Wallets.Address, address)[0];
-                const balance = bc.getBalance(users_address);
+
+                const cache = UTXOcache.init(db_env, self.arena);
+                const balance = cache.getBalance(users_address);
                 std.debug.print("'{[address]s}' has a balance of RBC {[balance]d}\n", .{ .address = users_address, .balance = balance });
             } else {
                 printUsage(.getbalance);
@@ -96,7 +104,7 @@ pub fn run(self: Cli) void {
         } else if (std.mem.eql(u8, argv, "printchain")) {
             const bc = BlockChain.getChain(db_env, self.arena);
 
-            var chain_iter = Iterator.iterator(bc.arena, bc.db, bc.last_hash);
+            var chain_iter = BlockIterator.iterator(bc.arena, bc.db, bc.last_hash);
             chain_iter.print();
         } else if (std.mem.eql(u8, argv, "createwallet")) {
             const wallets = Wallets.initWallets(self.arena, WALLET_STORAGE);
@@ -106,9 +114,11 @@ pub fn run(self: Cli) void {
             const wallets = Wallets.getWallets(self.arena, WALLET_STORAGE);
             const address_list = wallets.getAddresses();
 
-            for (address_list) |address, index| {
+            for (address_list, 0..) |address, index| {
                 std.log.info("address {}\n{s}\n", .{ index, address });
             }
+        } else {
+            printUsage(.help);
         }
     }
 }
@@ -118,20 +128,22 @@ fn printUsage(cmd: Cmd) void {
         .createchain => {
             std.debug.print(
                 \\Usage:
-                \\eg.zig build run -- createchain "blockchain name"
+                \\eg.zig build run -- createchain "wallet address"
                 \\
             , .{});
         },
         .help => {
             std.debug.print(
                 \\Usage:
-                \\eg.zig build run -- createchain "blockchain name"
+                \\eg.zig build run -- createchain "wallet address"
                 \\OR
                 \\zig build run -- printchain
                 \\OR
                 \\zig build run -- createwallet
                 \\OR
-                \\zig build run -- getbalance "address"
+                \\zig build run -- listaddress
+                \\OR
+                \\zig build run -- getbalance "wallet address"
                 \\OR
                 \\zig build run -- send --amount value --from address --to address
                 \\
@@ -152,5 +164,5 @@ fn printUsage(cmd: Cmd) void {
             , .{});
         },
     }
-    std.process.exit(7);
+    std.process.exit(@intFromEnum(ExitCodes.invalid_cli_argument));
 }

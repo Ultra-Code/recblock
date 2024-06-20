@@ -1,17 +1,16 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const Pkg = std.build.Pkg;
-const pkgs = struct {
-    const s2s = Pkg{
-        .name = "s2s",
-        .source = .{ .path = "./deps/s2s/s2s.zig" },
-        .dependencies = &[_]Pkg{},
-    };
-};
-const LMDB_PATH = "./deps/lmdb/libraries/liblmdb/";
+const Build = std.Build;
 
-pub fn build(b: *std.build.Builder) void {
-    // Standard target options allows the person running `zig build` to choose
+comptime {
+    //Big endian systems not currently supported
+    std.debug.assert(builtin.target.cpu.arch.endian() == .Little);
+}
+
+pub fn build(b: *Build) void {
+    const s2s_module = b.dependency("s2s", .{}).module("s2s");
+
+    const LMDB_PATH = "./deps/lmdb/libraries/liblmdb/";
     // what target to build for. Here we do not override the defaults, which
     // means any target is allowed, and the default is native. Other options
     // for restricting supported target set are available.
@@ -19,32 +18,42 @@ pub fn build(b: *std.build.Builder) void {
 
     // Standard release options allow the person running `zig build` to select
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
-    const mode = b.standardReleaseOptions();
+    const optimize = b.standardOptimizeOption(.{});
 
     //Add lmdb library for embeded key/value store
     const cflags = [_][]const u8{ "-pthread", "-std=c2x" };
     const lmdb_sources = [_][]const u8{ LMDB_PATH ++ "mdb.c", LMDB_PATH ++ "midl.c" };
-    const lmdb = b.addStaticLibrary("lmdb", null);
-    lmdb.setTarget(target);
-    lmdb.setBuildMode(mode);
+    const lmdb = b.addStaticLibrary(.{
+        .name = "lmdb",
+        .target = target,
+        .optimize = optimize,
+    });
     lmdb.addCSourceFiles(&lmdb_sources, &cflags);
     lmdb.linkLibC();
-    lmdb.install();
+    b.installArtifact(lmdb);
 
     const target_name = target.allocDescription(b.allocator) catch unreachable;
-    const exe_name = std.fmt.allocPrint(b.allocator, "{[program]s}-{[target]s}", .{ .program = "recblock", .target = target_name }) catch unreachable;
+    const exe_name = std.fmt.allocPrint(b.allocator, "{[program]s}-{[target]s}", .{
+        .program = "recblock",
+        .target = target_name,
+    }) catch unreachable;
 
-    const exe = b.addExecutable(exe_name, "src/main.zig");
-    exe.setTarget(target);
-    exe.setBuildMode(mode);
-    exe.addPackage(pkgs.s2s);
+    const exe = b.addExecutable(.{
+        .name = exe_name,
+        .root_source_file = .{
+            .path = "src/main.zig",
+        },
+        .target = target,
+        .optimize = optimize,
+    });
+    exe.addModule("s2s", s2s_module);
     exe.linkLibrary(lmdb);
-    exe.addIncludePath(LMDB_PATH);
-    exe.install();
+    exe.addIncludePath(.{ .path = LMDB_PATH });
+    b.installArtifact(exe);
+    exe.stack_size = 1024 * 1024 * 64;
 
-    switch (mode) {
-        .Debug => {},
-        else => {
+    switch (optimize) {
+        .ReleaseFast => {
             lmdb.link_function_sections = true;
             lmdb.red_zone = true;
             lmdb.want_lto = true;
@@ -59,8 +68,9 @@ pub fn build(b: *std.build.Builder) void {
                 exe.strip = true;
             }
         },
+        else => {},
     }
-    const run_cmd = exe.run();
+    const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| {
         run_cmd.addArgs(args);
@@ -70,12 +80,13 @@ pub fn build(b: *std.build.Builder) void {
     run_step.dependOn(&lmdb.step);
     run_step.dependOn(&run_cmd.step);
 
-    const exe_tests = b.addTest("src/main.zig");
-    exe_tests.setTarget(target);
-    exe_tests.setBuildMode(mode);
-    exe_tests.addPackage(pkgs.s2s);
+    const exe_tests = b.addTest(.{
+        .root_source_file = .{ .path = "src/main.zig" },
+        .target = target,
+    });
+    exe_tests.addModule("s2s", s2s_module);
     exe_tests.linkLibrary(lmdb);
-    exe_tests.addIncludePath(LMDB_PATH);
+    exe_tests.addIncludePath(.{ .path = LMDB_PATH });
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&lmdb.step);

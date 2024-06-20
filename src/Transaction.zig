@@ -10,9 +10,9 @@ pub const PrevTxMap = std.AutoArrayHashMap(TxID, Transaction);
 
 const serializer = @import("serializer.zig");
 
-//CHECKOUT: https://arxiv.org/abs/1806.06738 The Evolution of Embedding Metadata in Blockchain Transactions
+//INFO: https://arxiv.org/abs/1806.06738 The Evolution of Embedding Metadata in Blockchain Transactions
 //by Tooba Faisal, Nicolas Courtois, Antoaneta Serguieva
-//USE_AS: further extension to this blockchain to improve anonymity and security even futher
+//INFO: further extension to this blockchain to improve anonymity and security even futher
 
 //Transactions just lock values with a script, which can be unlocked only by the one who locked them.
 const Transaction = @This();
@@ -68,10 +68,10 @@ pub const SUBSIDY = 10;
 
 //A coinbase transaction is a special type of transactions, which doesn’t require previously existing outputs.
 //This is the reward miners get for mining new blocks.
-pub fn initCoinBaseTx(arena: Allocator, to: Wallets.Address, wallet_path: []const u8) Transaction {
+pub fn initCoinBaseTx(arena: Allocator, miners_address: Wallets.Address, wallet_path: []const u8) Transaction {
     var inlist = InList{};
     const wallets = Wallets.getWallets(arena, wallet_path);
-    const tos_wallet = wallets.getWallet(to);
+    const tos_wallet = wallets.getWallet(miners_address);
     inlist.append(
         arena,
         TxInput{
@@ -83,7 +83,7 @@ pub fn initCoinBaseTx(arena: Allocator, to: Wallets.Address, wallet_path: []cons
     ) catch unreachable;
 
     var outlist = OutList{};
-    outlist.append(arena, TxOutput{ .value = SUBSIDY, .pub_key_hash = Wallet.getPubKeyHash(to) }) catch unreachable;
+    outlist.append(arena, TxOutput{ .value = SUBSIDY, .pub_key_hash = Wallet.getPubKeyHash(miners_address) }) catch unreachable;
 
     var tx = Transaction{ .id = undefined, .tx_in = inlist, .tx_out = outlist };
     tx.setId();
@@ -101,14 +101,11 @@ pub fn initCoinBaseTx(arena: Allocator, to: Wallets.Address, wallet_path: []cons
 ///in order to sign a transaction, we need to access the outputs referenced in the inputs of the transaction , thus
 ///we need the transactions that store these outputs. `prev_txs`
 pub fn sign(self: *Transaction, wallet_keys: Wallet.KeyPair, prev_txs: PrevTxMap, fba: Allocator) void {
-    //Coinbase transactions are not signed because they don't contain real inputs
-    if (self.isCoinBaseTx()) return;
-
     //A trimmed copy will be signed, not a full transaction:
     //The copy will include all the inputs and outputs, but TxInput.sig and TxInput.pub_key are empty
     var trimmed_tx_copy = self.trimmedCopy(fba);
 
-    for (trimmed_tx_copy.tx_in.items) |value_in, in_index| {
+    for (trimmed_tx_copy.tx_in.items, 0..) |value_in, in_index| {
         //we use prev_txs because that has signed and verified to help in signing and verifying new transactions
         if (prev_txs.get(value_in.out_id)) |prev_tx| {
             //since the public_key of trimmedCopy is empty we store a copy of the pub_key_hash from the transaction output
@@ -120,31 +117,33 @@ pub fn sign(self: *Transaction, wallet_keys: Wallet.KeyPair, prev_txs: PrevTxMap
         var noise: [Wallets.Ed25519.noise_length]u8 = undefined;
         std.crypto.random.bytes(&noise);
 
-        const signature = Wallets.Ed25519.sign(trimmed_tx_copy.id[0..], wallet_keys, noise) catch unreachable;
-
+        const signature = wallet_keys.sign(trimmed_tx_copy.id[0..], noise) catch unreachable;
         self.tx_in.items[in_index].sig = signature;
     }
 }
 
 fn copyHashIntoPubKey(pub_key: *Wallets.PublicKey, pub_key_hash: Wallets.PublicKeyHash) void {
     //copy 0..20 of pub_key_hash into the beginning of pub_key
-    @memcpy(pub_key[0..], pub_key_hash[0..], @sizeOf(Wallets.PublicKeyHash));
+    @memcpy(pub_key.bytes[0..@sizeOf(Wallets.PublicKeyHash)], pub_key_hash[0..]);
     //recopy 12 bytes from pub_key_hash into 21..end of pub_key
-    @memcpy(pub_key[@sizeOf(Wallets.PublicKeyHash)..], pub_key_hash[0..], @sizeOf(Wallets.PublicKey) - @sizeOf(Wallets.PublicKeyHash));
+    @memcpy(
+        pub_key.bytes[@sizeOf(Wallets.PublicKeyHash)..],
+        pub_key_hash[0..(@sizeOf(Wallets.PublicKey) - @sizeOf(Wallets.PublicKeyHash))],
+    );
 }
 
 pub fn verify(self: Transaction, prev_txs: PrevTxMap, fba: Allocator) bool {
     var trimmed_tx_copy = self.trimmedCopy(fba);
 
-    for (self.tx_in.items) |value_in, in_index| {
+    for (self.tx_in.items, 0..) |value_in, in_index| {
         if (prev_txs.get(value_in.out_id)) |prev_tx| {
             copyHashIntoPubKey(&trimmed_tx_copy.tx_in.items[in_index].pub_key, prev_tx.tx_out.items[value_in.out_index].pub_key_hash);
         }
         trimmed_tx_copy.setId();
-
-        if (Wallets.Ed25519.verify(value_in.sig, trimmed_tx_copy.id[0..], value_in.pub_key)) |_| {} else |err| {
+        const sig: Wallets.Signature = value_in.sig;
+        if (sig.verify(trimmed_tx_copy.id[0..], value_in.pub_key)) |_| {} else |err| {
             std.log.info("public key has a value of {}", .{value_in});
-            std.log.err("{s} occured while verifying the transaction", .{@errorName(err)});
+            std.log.err("{s} occurred while verifying the transaction", .{@errorName(err)});
             return false;
         }
     }

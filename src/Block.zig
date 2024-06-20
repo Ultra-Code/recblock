@@ -2,13 +2,14 @@ const std = @import("std");
 const fmt = std.fmt;
 const mem = std.mem;
 const Blake3 = std.crypto.hash.Blake3;
+const Hash = [Blake3.digest_length]u8;
 const testing = std.testing;
 
 const Block = @This();
 const Transaction = @import("Transaction.zig");
 
 //TARGET_ZERO_BITS must be a multiple of 4 and it determines the number of zeros in the target hash which determines difficult
-//The higer TARGET_ZERO_BITS the harder or time consuming it is to find a hash
+//The higher the TARGET_ZERO_BITS the harder or time consuming it is to find a hash
 //NOTE: when we define a target adjusting algorithm this won't be a global constant anymore
 //it specifies the target hash which is used to check hashes which are valid
 //a block is only accepted by the network if its hash meets the network's difficulty target
@@ -20,16 +21,16 @@ timestamp: i64,
 //Thus miners must discover by brute force the "nonce" that, when included in the block, results in an acceptable hash.
 nonce: usize = 0,
 //stores the hash of the previous block
-previous_hash: [32]u8,
+previous_hash: Hash,
 //hash of the current block
-hash: [32]u8 = undefined,
+hash: Hash = undefined,
 //the actual valuable information contained in the block .eg Transactions
 transactions: std.ArrayListUnmanaged(Transaction),
 //difficulty bits is the block header storing the difficulty at which the block was mined
-difficulty_bits: u7 = TARGET_ZERO_BITS, //u7 limit value from 0 to 127 since we can't have a difficult equal in bitsize to the hashsize which is 256
+difficulty_bits: u7 = TARGET_ZERO_BITS, //u7 limit value from 0 to 127 since we can't have a difficult equal in bitsize to the hashsize which is 255
 
 ///mine a new block
-pub fn newBlock(arena: std.mem.Allocator, previous_hash: [32]u8, transactions: []const Transaction) Block {
+pub fn newBlock(arena: std.mem.Allocator, previous_hash: Hash, transactions: []const Transaction) Block {
     var new_block = Block{
         .timestamp = std.time.timestamp(),
         .transactions = std.ArrayListUnmanaged(Transaction){},
@@ -43,7 +44,7 @@ pub fn newBlock(arena: std.mem.Allocator, previous_hash: [32]u8, transactions: [
 }
 
 pub fn genesisBlock(arena: std.mem.Allocator, coinbase: Transaction) Block {
-    return newBlock(arena, .{'\x00'} ** 32, &.{coinbase});
+    return newBlock(arena, std.mem.zeroes(Hash), &.{coinbase});
 }
 
 ///Validate POW
@@ -58,9 +59,9 @@ pub fn validate(block: Block) bool {
 
 fn hashBlock(self: Block, nonce: usize) u256 {
     //TODO : optimize the sizes of these buffers base on the base and use exactly the amount that is needed
-    var time_buf: [16]u8 = undefined;
+    var time_buf: [8]u8 = undefined;
     var bits_buf: [3]u8 = undefined;
-    var nonce_buf: [16]u8 = undefined;
+    var nonce_buf: [8]u8 = undefined;
 
     const timestamp = fmt.bufPrintIntToSlice(&time_buf, self.timestamp, 16, .lower, .{});
     const difficulty_bits = fmt.bufPrintIntToSlice(&bits_buf, self.difficulty_bits, 16, .lower, .{});
@@ -68,7 +69,7 @@ fn hashBlock(self: Block, nonce: usize) u256 {
 
     var buf: [4096]u8 = undefined;
 
-    //timestamp ,previous_hash and hash form the BlockHeader
+    //timestamp ,previous_hash and hash from the BlockHeader
     const block_headers = fmt.bufPrint(&buf, "{[previous_hash]s}{[transactions]s}{[timestamp]s}{[difficulty_bits]s}{[nonce]s}", .{
         .previous_hash = self.previous_hash,
         .transactions = self.hashTxs(),
@@ -77,7 +78,7 @@ fn hashBlock(self: Block, nonce: usize) u256 {
         .nonce = nonce_val,
     }) catch unreachable;
 
-    var hash: [Blake3.digest_length]u8 = undefined;
+    var hash: Hash = undefined;
     Blake3.hash(block_headers, &hash, .{});
 
     const hash_int = mem.bytesToValue(u256, hash[0..]);
@@ -89,14 +90,14 @@ fn getTargetHash(target_dificulty: u7) u256 {
     //hast to be compaired with for valid hashes to prove work done
     const @"256bit": u9 = 256; //256 bit is 32 byte which is the size of a Blake3 hash
     const @"1": u256 = 1; //a 32 byte integer with the value of 1
-    const difficult = @intCast(u8, @"256bit" - target_dificulty);
-    const target_hash_difficult = @shlExact(@"1", difficult);
+    const difficult: u8 = @intCast(@"256bit" - target_dificulty);
+    const target_hash_difficult: u256 = @shlExact(@"1", difficult);
     return target_hash_difficult;
 }
 
 ///Proof of Work mining algorithm
 ///The usize returned is the nonce with which a valid block was mined
-pub fn POW(block: Block) struct { hash: [32]u8, nonce: usize } {
+pub fn POW(block: Block) struct { hash: Hash, nonce: usize } {
     const target_hash = getTargetHash(block.difficulty_bits);
 
     var nonce: usize = 0;
@@ -105,7 +106,7 @@ pub fn POW(block: Block) struct { hash: [32]u8, nonce: usize } {
         const hash_int = block.hashBlock(nonce);
 
         if (hash_int < target_hash) {
-            return .{ .hash = @bitCast([32]u8, hash_int), .nonce = nonce };
+            return .{ .hash = @bitCast(hash_int), .nonce = nonce };
         } else {
             nonce += 1;
         }
@@ -113,7 +114,7 @@ pub fn POW(block: Block) struct { hash: [32]u8, nonce: usize } {
     unreachable;
 }
 
-fn hashTxs(self: Block) [32]u8 {
+fn hashTxs(self: Block) Hash {
     var txhashes: []u8 = &.{};
 
     var buf: [2048]u8 = undefined;
@@ -124,7 +125,7 @@ fn hashTxs(self: Block) [32]u8 {
         txhashes = std.mem.concat(allocator, u8, &[_][]const u8{ txhashes, txn.id[0..] }) catch unreachable;
     }
 
-    var hash: [Blake3.digest_length]u8 = undefined;
+    var hash: Hash = undefined;
     Blake3.hash(txhashes, &hash, .{});
     return hash;
 }

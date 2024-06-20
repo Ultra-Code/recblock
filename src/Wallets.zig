@@ -6,6 +6,7 @@ const Blake2b160 = crypto.hash.blake2.Blake2b160;
 const base64 = std.base64;
 
 const serializer = @import("s2s");
+const ExitCodes = @import("utils.zig").ExitCodes;
 
 pub const ADDR_CKSUM_LEN = 4; //meaning 4 u8 values making up 32bit
 pub const PUB_KEY_HASH_LEN = Blake2b160.digest_length;
@@ -15,9 +16,9 @@ const VERSION = '\x01';
 pub const PUB_KEY_LEN = Ed25519.public_length;
 pub const ADDRESS_SIZE = encodedAddressLenght();
 
-pub const PrivateKey = [Ed25519.secret_length]u8;
-pub const PublicKey = [Ed25519.public_length]u8;
-pub const Signature = [Ed25519.signature_length]u8;
+pub const PrivateKey = Ed25519.SecretKey;
+pub const PublicKey = Ed25519.PublicKey;
+pub const Signature = Ed25519.Signature;
 pub const Address = [ADDRESS_SIZE]u8;
 pub const PublicKeyHash = [PUB_KEY_HASH_LEN]u8;
 pub const Checksum = [ADDR_CKSUM_LEN]u8;
@@ -65,7 +66,11 @@ pub fn getAddresses(wallets: Wallets) []const Address {
 
 ///get the wallet associated with this address
 pub fn getWallet(self: Wallets, address: Address) Wallet {
-    return self.wallets.get(address).?;
+    return self.wallets.get(address) orelse {
+        std.log.err("The wallet address specified '{s}' does not exit", .{address});
+        std.log.err("Create a wallet with the 'createwallet' command", .{});
+        std.process.exit(@intFromEnum(ExitCodes.invalid_wallet_address));
+    };
 }
 
 ///load saved wallet data
@@ -88,8 +93,8 @@ fn loadWallets(self: *Wallets) void {
         self.wallets.putNoClobber(wallet_key, wallet_value) catch unreachable;
     }
 }
-//TODO: oraganize exit codes
-//TODO: a way to efficiently save wallets .ie something like write only part which aren't already in the file
+//TODO: a way to efficiently save wallets .ie something like write only part which aren't already in the file or use
+//the db so that we can keep track the last wallet address and iterate from that point and store the values
 ///save wallets to `wallet_path` field
 fn saveWallets(self: Wallets) void {
     const file = std.fs.cwd().openFile(self.wallet_path, .{ .mode = .write_only }) catch |err| switch (err) {
@@ -185,7 +190,7 @@ pub const Wallet = struct {
         //https://linuxadictos.com/en/blake3-a-fast-and-parallelizable-secure-cryptographic-hash-function.html
         //replaces sha256 with Blake3 which is also 256 and faster in software
         var pk_hash: [Blake3.digest_length]u8 = undefined;
-        Blake3.hash(pub_key[0..], &pk_hash, .{});
+        Blake3.hash(pub_key.bytes[0..], &pk_hash, .{});
 
         //use Blake2b160 as a replacement for bitcoins ripemd-160 https://en.bitcoin.it/wiki/RIPEMD-160
         //smaller bit lenght for easy readability for user
