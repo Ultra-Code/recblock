@@ -3,8 +3,8 @@
     .version = "0.1.0",
     .dependencies = .{
         .s2s = .{
-            .url = "https://github.com/ziglibs/s2s/archive/b30205d5e9204899fb6d0fdf28d00ed4d18fe9c9.tar.gz",
-            .hash = "12202c39c98f05041f1052c268132669dbfcda87e4dbb0353cd84a6070924c8ac0e3",
+            .url = "https://github.com/Ultra-Code/s2s/archive/457545e66247ce58046f24f0dab8d05440acfa3e.tar.gz",
+            .hash = "12203e7085165c465f27125a20e8b1cec91306baf875eb0887a520a66dea0a2f2a3d",
         },
     },
     .paths = .{""},

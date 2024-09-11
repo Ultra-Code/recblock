@@ -1,6 +1,4 @@
-[submodule "deps/s2s"]
-	path = deps/s2s
-	url = https://github.com/Ultra-Code/s2s
 [submodule "deps/lmdb"]
 	path = deps/lmdb
-	url = git@github.com:LMDB/lmdb.git
+	# url = git@github.com:LMDB/lmdb.git
+	url = https://github.com/LMDB/lmdb.git
