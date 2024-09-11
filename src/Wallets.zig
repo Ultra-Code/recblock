@@ -1,12 +1,18 @@
+///to keep a collection of wallets, save them to a file, and load them from it when needed
+wallets: WalleltMap,
+///path to storage for wallets
+wallet_path: []const u8,
+
 const std = @import("std");
 const crypto = std.crypto;
+const base64 = std.base64;
+const serializer = @import("s2s");
+
+pub const Wallets = @This();
+const WalleltMap = std.AutoArrayHashMap(Address, Wallet);
 pub const Ed25519 = crypto.sign.Ed25519;
 const Blake3 = crypto.hash.Blake3;
 const Blake2b160 = crypto.hash.blake2.Blake2b160;
-const base64 = std.base64;
-
-const serializer = @import("s2s");
-
 pub const ADDR_CKSUM_LEN = 4; //meaning 4 u8 values making up 32bit
 pub const PUB_KEY_HASH_LEN = Blake2b160.digest_length;
 //version of the address generation algorithm
@@ -14,22 +20,14 @@ pub const VERSION_LEN = 1;
 const VERSION = '\x01';
 pub const PUB_KEY_LEN = Ed25519.public_length;
 pub const ADDRESS_SIZE = encodedAddressLenght();
-
-pub const PrivateKey = [Ed25519.secret_length]u8;
-pub const PublicKey = [Ed25519.public_length]u8;
-pub const Signature = [Ed25519.signature_length]u8;
+pub const PrivateKey = Ed25519.SecretKey;
+pub const PublicKey = Ed25519.PublicKey;
+pub const Signature = Ed25519.Signature;
 pub const Address = [ADDRESS_SIZE]u8;
 pub const PublicKeyHash = [PUB_KEY_HASH_LEN]u8;
 pub const Checksum = [ADDR_CKSUM_LEN]u8;
 const VersionedHash = [VERSION_LEN + PUB_KEY_HASH_LEN]u8;
 const RawAddress = [VERSION_LEN + PUB_KEY_HASH_LEN + ADDR_CKSUM_LEN]u8;
-
-pub const Wallets = @This();
-const WalleltMap = std.AutoArrayHashMap(Address, Wallet);
-///to keep a collection of wallets, save them to a file, and load them from it when needed
-wallets: WalleltMap,
-///path to storage for wallets
-wallet_path: []const u8,
 
 ///use to initialize `Wallets`
 pub fn initWallets(arena: std.mem.Allocator, wallet_path: []const u8) Wallets {
@@ -162,7 +160,7 @@ pub const Wallet = struct {
     fn decodeBase64(wallet_address: Address) RawAddress {
         var buf: [100]u8 = undefined;
         const decoder = base64.Base64Decoder.init(base64.url_safe_alphabet_chars, null);
-        var decoded_buf = buf[0 .. decoder.calcSizeForSlice(wallet_address[0..]) catch unreachable];
+        const decoded_buf = buf[0 .. decoder.calcSizeForSlice(wallet_address[0..]) catch unreachable];
         decoder.decode(decoded_buf, wallet_address[0..]) catch unreachable;
         return std.mem.bytesAsSlice(RawAddress, decoded_buf)[0];
     }
@@ -185,7 +183,7 @@ pub const Wallet = struct {
         //https://linuxadictos.com/en/blake3-a-fast-and-parallelizable-secure-cryptographic-hash-function.html
         //replaces sha256 with Blake3 which is also 256 and faster in software
         var pk_hash: [Blake3.digest_length]u8 = undefined;
-        Blake3.hash(pub_key[0..], &pk_hash, .{});
+        Blake3.hash(pub_key.toBytes()[0..], &pk_hash, .{});
 
         //use Blake2b160 as a replacement for bitcoins ripemd-160 https://en.bitcoin.it/wiki/RIPEMD-160
         //smaller bit lenght for easy readability for user

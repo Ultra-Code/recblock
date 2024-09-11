@@ -1,32 +1,29 @@
+db_env: *Env,
+txn: ?*Txn = null,
+txn_type: TxnType,
+db_handle: DbHandle = undefined,
+
+const std = @import("std");
 const mdb = struct {
     usingnamespace @cImport({
         @cInclude("lmdb.h");
     });
 };
-
-const std = @import("std");
 const panic = std.debug.panic;
 const assert = std.debug.assert;
 const info = std.log.info;
 const testing = std.testing;
-const err = std.os.E;
+const err = std.posix.E;
+const serializer = @import("serializer.zig");
 
 pub const Lmdb = @This();
-
-const serializer = @import("serializer.zig");
-const BLOCK_DB = @import("utils.zig").BLOCK_DB;
-
 const Env = mdb.MDB_env;
 const Key = mdb.MDB_val;
 const Val = mdb.MDB_val;
 const Txn = mdb.MDB_txn;
 const DbHandle = mdb.MDB_dbi;
-
 const TxnType = enum { rw, ro };
-db_env: *Env,
-txn: ?*Txn = null,
-txn_type: TxnType,
-db_handle: DbHandle = undefined,
+const BLOCK_DB = @import("Transaction.zig").BLOCK_DB;
 
 ///`db_path` is the directory in which the database files reside. This directory must already exist and be writable.
 ///initialize db environment (mmap file) specifing the db mode `.rw/.ro`
@@ -84,7 +81,7 @@ pub fn openNewDb(lmdb: Lmdb, db_name: []const u8) Lmdb {
     ensureValidState(lmdb);
     const handle = openDb(lmdb, db_name);
     return .{
-        .db_handle = lmdb.db_env,
+        .db_env = lmdb.db_env,
         .txn = lmdb.txn.?,
         .txn_type = lmdb.txn_type,
         .db_handle = handle,
@@ -144,8 +141,8 @@ fn insert(lmdb: Lmdb, serialized_data: []const u8, key_val: []const u8) !void {
     const put_state = mdb.mdb_put(
         lmdb.txn.?,
         lmdb.db_handle,
-        &key(key_val),
-        &value(serialized_data[0..]),
+        key(key_val),
+        value(serialized_data[0..]),
         insert_flags,
     );
     try checkState(put_state);
@@ -180,8 +177,8 @@ pub fn update(lmdb: Lmdb, key_val: []const u8, data: anytype) !void {
     const update_state = mdb.mdb_put(
         lmdb.txn.?,
         lmdb.db_handle,
-        &key(key_val),
-        &value(serialized_data[0..]),
+        key(key_val),
+        value(serialized_data[0..]),
         update_flag,
     );
     try checkState(update_state);
@@ -217,11 +214,6 @@ pub fn abortTxns(lmdb: Lmdb) void {
     mdb.mdb_txn_abort(lmdb.txn.?);
 }
 
-///This is any unsafe cast which discards const
-pub fn cast(comptime T: type, any_ptr: anytype) T {
-    return @intToPtr(T, @ptrToInt(any_ptr));
-}
-
 ///get `key_val` as `T` when it doesn't require allocation
 pub fn get(lmdb: Lmdb, comptime T: type, key_val: []const u8) !T {
     ensureValidState(lmdb);
@@ -230,7 +222,7 @@ pub fn get(lmdb: Lmdb, comptime T: type, key_val: []const u8) !T {
     const get_state = mdb.mdb_get(
         lmdb.txn.?,
         lmdb.db_handle,
-        &key(key_val),
+        key(key_val),
         &data,
     );
 
@@ -247,19 +239,22 @@ pub fn getAlloc(lmdb: Lmdb, comptime T: type, fba: std.mem.Allocator, key_val: [
     const get_state = mdb.mdb_get(
         lmdb.txn.?,
         lmdb.db_handle,
-        &key(key_val),
+        key(key_val),
         &data,
     );
     try checkState(get_state);
     return serializer.deserializeAlloc(T, fba, data.mv_data, data.mv_size);
 }
 
-fn key(data: []const u8) Key {
+fn key(data: []const u8) *Key {
     return value(data);
 }
 
-fn value(data: []const u8) Val {
-    return .{ .mv_size = data.len, .mv_data = cast(*anyopaque, data.ptr) };
+fn value(data: []const u8) *Val {
+    return @constCast(&Val{
+        .mv_size = data.len,
+        .mv_data = @ptrCast(@constCast(data.ptr)),
+    });
 }
 
 ///check state of operation to make sure there where no errors
@@ -353,30 +348,30 @@ fn checkState(state: c_int) !void {
             return error.InvalidDbHandle;
         },
         //out of memory.
-        @enumToInt(err.NOENT) => {
+        @intFromEnum(err.NOENT) => {
             return error.NoSuchFileOrDirectory;
         },
         //don't have adecuate permissions to perform operation
-        @enumToInt(err.ACCES) => {
+        @intFromEnum(err.ACCES) => {
             return error.PermissionDenied;
         },
         //the environment was locked by another process.
-        @enumToInt(err.AGAIN) => {
+        @intFromEnum(err.AGAIN) => {
             return error.EnvLockedTryAgain;
         },
-        @enumToInt(err.NOMEM) => {
+        @intFromEnum(err.NOMEM) => {
             return error.OutOfMemory;
         },
         //an invalid parameter was specified.
-        @enumToInt(err.INVAL) => {
+        @intFromEnum(err.INVAL) => {
             return error.InvalidArgument;
         },
         //a low-level I/O error occurred
-        @enumToInt(err.IO) => {
+        @intFromEnum(err.IO) => {
             return error.IOFailed;
         },
         //no more disk space on device.
-        @enumToInt(err.NOSPC) => {
+        @intFromEnum(err.NOSPC) => {
             return error.DiskSpaceFull;
         },
         else => panic("'{}' -> {s}", .{ state, mdb.mdb_strerror(state) }),

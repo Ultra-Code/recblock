@@ -1,20 +1,3 @@
-const std = @import("std");
-const fmt = std.fmt;
-const mem = std.mem;
-const Blake3 = std.crypto.hash.Blake3;
-const testing = std.testing;
-
-const Block = @This();
-const Transaction = @import("Transaction.zig");
-
-//TARGET_ZERO_BITS must be a multiple of 4 and it determines the number of zeros in the target hash which determines difficult
-//The higer TARGET_ZERO_BITS the harder or time consuming it is to find a hash
-//NOTE: when we define a target adjusting algorithm this won't be a global constant anymore
-//it specifies the target hash which is used to check hashes which are valid
-//a block is only accepted by the network if its hash meets the network's difficulty target
-//the number of leading zeros in the target serves as a good approximation of the current difficult
-const TARGET_ZERO_BITS = 8;
-
 //when the block is created
 timestamp: i64,
 //Thus miners must discover by brute force the "nonce" that, when included in the block, results in an acceptable hash.
@@ -27,6 +10,22 @@ hash: [32]u8 = undefined,
 transactions: std.ArrayListUnmanaged(Transaction),
 //difficulty bits is the block header storing the difficulty at which the block was mined
 difficulty_bits: u7 = TARGET_ZERO_BITS, //u7 limit value from 0 to 127 since we can't have a difficult equal in bitsize to the hashsize which is 256
+
+const std = @import("std");
+const fmt = std.fmt;
+const mem = std.mem;
+const testing = std.testing;
+
+const Block = @This();
+const Transaction = @import("Transaction.zig");
+const Blake3 = std.crypto.hash.Blake3;
+//TARGET_ZERO_BITS must be a multiple of 4 and it determines the number of zeros in the target hash which determines difficult
+//The higer TARGET_ZERO_BITS the harder or time consuming it is to find a hash
+//NOTE: when we define a target adjusting algorithm this won't be a global constant anymore
+//it specifies the target hash which is used to check hashes which are valid
+//a block is only accepted by the network if its hash meets the network's difficulty target
+//the number of leading zeros in the target serves as a good approximation of the current difficult
+const TARGET_ZERO_BITS = 8;
 
 ///mine a new block
 pub fn newBlock(arena: std.mem.Allocator, previous_hash: [32]u8, transactions: []const Transaction) Block {
@@ -89,7 +88,7 @@ fn getTargetHash(target_dificulty: u7) u256 {
     //hast to be compaired with for valid hashes to prove work done
     const @"256bit": u9 = 256; //256 bit is 32 byte which is the size of a Blake3 hash
     const @"1": u256 = 1; //a 32 byte integer with the value of 1
-    const difficult = @intCast(u8, @"256bit" - target_dificulty);
+    const difficult: u8 = @intCast(@"256bit" - target_dificulty);
     const target_hash_difficult = @shlExact(@"1", difficult);
     return target_hash_difficult;
 }
@@ -105,7 +104,7 @@ pub fn POW(block: Block) struct { hash: [32]u8, nonce: usize } {
         const hash_int = block.hashBlock(nonce);
 
         if (hash_int < target_hash) {
-            return .{ .hash = @bitCast([32]u8, hash_int), .nonce = nonce };
+            return .{ .hash = @bitCast(hash_int), .nonce = nonce };
         } else {
             nonce += 1;
         }
@@ -144,7 +143,7 @@ test "newBlock" {
     var wallets = Wallets.initWallets(allocator, wallet_path);
     const genesis_wallet = wallets.createWallet();
 
-    var coinbase = Transaction.initCoinBaseTx(allocator, genesis_wallet, wallets.wallet_path);
+    const coinbase = Transaction.initCoinBaseTx(allocator, genesis_wallet, wallets.wallet_path);
     var genesis_block = Block.genesisBlock(allocator, coinbase);
     var new_block = newBlock(allocator, genesis_block.hash, &.{coinbase});
 

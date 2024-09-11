@@ -1,11 +1,13 @@
+arena: std.mem.Allocator,
+
 const std = @import("std");
+
+const Cli = @This();
 const BlockChain = @import("Blockchain.zig");
 const Wallets = @import("Wallets.zig");
 const Iterator = @import("Iterator.zig");
 const Lmdb = @import("Lmdb.zig");
 const WALLET_STORAGE = "db/wallet.dat";
-
-const Cli = @This();
 
 const Cmd = enum {
     createchain,
@@ -13,8 +15,6 @@ const Cmd = enum {
     getbalance,
     help,
 };
-
-arena: std.mem.Allocator,
 
 pub fn init(arena: std.mem.Allocator) Cli {
     return .{ .arena = arena };
@@ -106,7 +106,7 @@ pub fn run(self: Cli) void {
             const wallets = Wallets.getWallets(self.arena, WALLET_STORAGE);
             const address_list = wallets.getAddresses();
 
-            for (address_list) |address, index| {
+            for (address_list, 0..) |address, index| {
                 std.log.info("address {}\n{s}\n", .{ index, address });
             }
         }

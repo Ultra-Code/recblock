@@ -1,18 +1,18 @@
-const std = @import("std");
-const Block = @import("Block.zig");
-const Lmdb = @import("Lmdb.zig");
-const Iterator = @This();
-
-const info = std.log.info;
-const fh = std.fmt.fmtSliceHexUpper;
-const utils = @import("utils.zig");
-const fmtHash = utils.fmtHash;
-const BLOCK_DB = utils.BLOCK_DB;
-
 arena: std.mem.Allocator,
 db: Lmdb,
 //Notice that an iterator initially points at the tip of a blockchain, thus blocks will be obtained from top to bottom, from newest to oldest.
 current_hash: [32]u8,
+
+const std = @import("std");
+const info = std.log.info;
+const fh = std.fmt.fmtSliceHexUpper;
+
+const Iterator = @This();
+const Block = @import("Block.zig");
+const Lmdb = @import("Lmdb.zig");
+const Blockchain = @import("Blockchain.zig");
+const fmtHash = Blockchain.fmtHash;
+const BLOCK_DB = Blockchain.BLOCK_DB;
 
 pub fn iterator(fba: std.mem.Allocator, db: Lmdb, last_hash: [32]u8) Iterator {
     return .{ .arena = fba, .db = db, .current_hash = last_hash };

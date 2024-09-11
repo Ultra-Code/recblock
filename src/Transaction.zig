@@ -1,23 +1,30 @@
-const std = @import("std");
-const zeroes = std.mem.zeroes;
-const Allocator = std.mem.Allocator;
-const Blake3 = std.crypto.hash.Blake3;
-const Wallets = @import("Wallets.zig");
-const Wallet = Wallets.Wallet;
-pub const TxID = [Blake3.digest_length]u8;
-///previous transaction which are found to contain a specified TxID
-pub const PrevTxMap = std.AutoArrayHashMap(TxID, Transaction);
-
-const serializer = @import("serializer.zig");
-
 //CHECKOUT: https://arxiv.org/abs/1806.06738 The Evolution of Embedding Metadata in Blockchain Transactions
 //by Tooba Faisal, Nicolas Courtois, Antoaneta Serguieva
 //USE_AS: further extension to this blockchain to improve anonymity and security even futher
+//hash of transaction
+id: TxID,
+//Inputs of a new transaction reference outputs of a previous transaction
+tx_in: InList,
+// Outputs are where coins are actually stored.
+tx_out: OutList,
+
+const std = @import("std");
+const zeroes = std.mem.zeroes;
+const serializer = @import("serializer.zig");
 
 //Transactions just lock values with a script, which can be unlocked only by the one who locked them.
 const Transaction = @This();
 const InList = std.ArrayListUnmanaged(TxInput);
 const OutList = std.ArrayListUnmanaged(TxOutput);
+///previous transaction which are found to contain a specified TxID
+pub const PrevTxMap = std.AutoArrayHashMap(TxID, Transaction);
+const Wallets = @import("Wallets.zig");
+const Allocator = std.mem.Allocator;
+const Blake3 = std.crypto.hash.Blake3;
+const Wallet = Wallets.Wallet;
+pub const TxID = [Blake3.digest_length]u8;
+//subsidy is the amount of reward for mining
+pub const SUBSIDY = 10;
 
 //TxOutputs are indivisible,meaning you can't reference part of it's value
 //When an output is referenced in a new transaction, it’s spent as a whole.
@@ -55,16 +62,6 @@ pub const TxInput = struct {
         return std.mem.eql(u8, locking_hash[0..], pub_key_hash[0..]);
     }
 };
-
-//hash of transaction
-id: TxID,
-//Inputs of a new transaction reference outputs of a previous transaction
-tx_in: InList,
-// Outputs are where coins are actually stored.
-tx_out: OutList,
-
-//subsidy is the amount of reward for mining
-pub const SUBSIDY = 10;
 
 //A coinbase transaction is a special type of transactions, which doesn’t require previously existing outputs.
 //This is the reward miners get for mining new blocks.
@@ -108,7 +105,7 @@ pub fn sign(self: *Transaction, wallet_keys: Wallet.KeyPair, prev_txs: PrevTxMap
     //The copy will include all the inputs and outputs, but TxInput.sig and TxInput.pub_key are empty
     var trimmed_tx_copy = self.trimmedCopy(fba);
 
-    for (trimmed_tx_copy.tx_in.items) |value_in, in_index| {
+    for (trimmed_tx_copy.tx_in.items, 0..) |value_in, in_index| {
         //we use prev_txs because that has signed and verified to help in signing and verifying new transactions
         if (prev_txs.get(value_in.out_id)) |prev_tx| {
             //since the public_key of trimmedCopy is empty we store a copy of the pub_key_hash from the transaction output
@@ -119,8 +116,7 @@ pub fn sign(self: *Transaction, wallet_keys: Wallet.KeyPair, prev_txs: PrevTxMap
 
         var noise: [Wallets.Ed25519.noise_length]u8 = undefined;
         std.crypto.random.bytes(&noise);
-
-        const signature = Wallets.Ed25519.sign(trimmed_tx_copy.id[0..], wallet_keys, noise) catch unreachable;
+        const signature = wallet_keys.sign(trimmed_tx_copy.id[0..], noise) catch unreachable;
 
         self.tx_in.items[in_index].sig = signature;
     }
@@ -128,21 +124,20 @@ pub fn sign(self: *Transaction, wallet_keys: Wallet.KeyPair, prev_txs: PrevTxMap
 
 fn copyHashIntoPubKey(pub_key: *Wallets.PublicKey, pub_key_hash: Wallets.PublicKeyHash) void {
     //copy 0..20 of pub_key_hash into the beginning of pub_key
-    @memcpy(pub_key[0..], pub_key_hash[0..], @sizeOf(Wallets.PublicKeyHash));
+    @memcpy(pub_key.bytes[0..20], pub_key_hash[0..]);
     //recopy 12 bytes from pub_key_hash into 21..end of pub_key
-    @memcpy(pub_key[@sizeOf(Wallets.PublicKeyHash)..], pub_key_hash[0..], @sizeOf(Wallets.PublicKey) - @sizeOf(Wallets.PublicKeyHash));
+    @memcpy(pub_key.bytes[@sizeOf(Wallets.PublicKeyHash)..], pub_key_hash[0 .. @sizeOf(Wallets.PublicKey) - @sizeOf(Wallets.PublicKeyHash)]);
 }
 
 pub fn verify(self: Transaction, prev_txs: PrevTxMap, fba: Allocator) bool {
     var trimmed_tx_copy = self.trimmedCopy(fba);
 
-    for (self.tx_in.items) |value_in, in_index| {
+    for (self.tx_in.items, 0..) |value_in, in_index| {
         if (prev_txs.get(value_in.out_id)) |prev_tx| {
             copyHashIntoPubKey(&trimmed_tx_copy.tx_in.items[in_index].pub_key, prev_tx.tx_out.items[value_in.out_index].pub_key_hash);
         }
         trimmed_tx_copy.setId();
-
-        if (Wallets.Ed25519.verify(value_in.sig, trimmed_tx_copy.id[0..], value_in.pub_key)) |_| {} else |err| {
+        if (value_in.sig.verify(trimmed_tx_copy.id[0..], value_in.pub_key)) |_| {} else |err| {
             std.log.info("public key has a value of {}", .{value_in});
             std.log.err("{s} occured while verifying the transaction", .{@errorName(err)});
             return false;
@@ -209,6 +204,6 @@ test "isCoinBaseTx" {
     var wallets = Wallets.initWallets(allocator, wallet_path);
     const test_coinbase = wallets.createWallet();
 
-    var coinbase = initCoinBaseTx(allocator, test_coinbase, wallets.wallet_path);
+    const coinbase = initCoinBaseTx(allocator, test_coinbase, wallets.wallet_path);
     try std.testing.expect(isCoinBaseTx(coinbase));
 }

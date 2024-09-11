@@ -1,36 +1,38 @@
-const std = @import("std");
-const mem = std.mem;
-const panic = std.debug.panic;
-const info = std.log.info;
-const Blake3 = std.crypto.hash.Blake3;
-const fmt = std.fmt;
-const fh = fmt.fmtSliceHexUpper;
-const assert = std.debug.assert;
-
-const BlockChain = @This();
-
-const Transaction = @import("Transaction.zig");
-const Block = @import("Block.zig");
-const Lmdb = @import("Lmdb.zig");
-const Iterator = @import("Iterator.zig");
-const Wallets = @import("Wallets.zig");
-const utils = @import("utils.zig");
-
-const Wallet = Wallets.Wallet;
-const Address = Wallets.Address;
-const fmtHash = utils.fmtHash;
-const BLOCK_DB = utils.BLOCK_DB;
-const WALLET = "wallet.dat";
-const LAST = utils.LAST;
-const OutputIndex = usize;
-const TxMap = std.AutoHashMap(Transaction.TxID, OutputIndex);
-
 //READ: https://en.bitcoin.it/wiki/Block_hashing_algorithm https://en.bitcoin.it/wiki/Proof_of_work https://en.bitcoin.it/wiki/Hashcash
 
 last_hash: [Blake3.digest_length]u8,
 db: Lmdb,
 arena: std.mem.Allocator,
 wallet_path: []const u8,
+
+const std = @import("std");
+const mem = std.mem;
+const panic = std.debug.panic;
+const info = std.log.info;
+const fmt = std.fmt;
+const fh = fmt.fmtSliceHexUpper;
+const assert = std.debug.assert;
+
+const BlockChain = @This();
+const Block = @import("Block.zig");
+const Transaction = @import("Transaction.zig");
+const Lmdb = @import("Lmdb.zig");
+const Iterator = @import("Iterator.zig");
+const Wallets = @import("Wallets.zig");
+pub const BLOCK_DB = "blocks";
+pub const LAST = "last";
+const WALLET = "wallet.dat";
+const TxMap = std.AutoHashMap(Transaction.TxID, OutputIndex);
+const OutputIndex = usize;
+const Blake3 = std.crypto.hash.Blake3;
+const Wallet = Wallets.Wallet;
+const Address = Wallets.Address;
+
+pub fn fmtHash(hash: [32]u8) [32]u8 {
+    const hash_int: u256 = @bitCast(hash);
+    const big_end_hash_int = @byteSwap(hash_int);
+    return @bitCast(big_end_hash_int);
+}
 
 //TODO:organise and document exit codes
 pub fn getChain(db: Lmdb, arena: std.mem.Allocator) BlockChain {
@@ -120,7 +122,7 @@ fn findUTxs(bc: BlockChain, pub_key_hash: Wallets.PublicKeyHash) []const Transac
 
     while (bc_itr.next()) |block| {
         for (block.transactions.items) |tx| {
-            output: for (tx.tx_out.items) |txoutput, txindex| {
+            output: for (tx.tx_out.items, 0..) |txoutput, txindex| {
                 //was the output spent? We skip those that were referenced in inputs (their values were moved to
                 //other outputs, thus we cannot count them)
                 if (spent_txos.get(tx.id)) |spent_output_index| {
@@ -151,7 +153,7 @@ fn findUTxs(bc: BlockChain, pub_key_hash: Wallets.PublicKeyHash) []const Transac
             break;
         }
     }
-    return unspent_txos.toOwnedSlice();
+    return unspent_txos.toOwnedSlice() catch unreachable;
 }
 
 ///find unspent transaction outputs
@@ -167,7 +169,7 @@ fn findUTxOs(self: BlockChain, pub_key_hash: Wallets.PublicKeyHash) []const Tran
             }
         }
     }
-    return tx_output_list.toOwnedSlice();
+    return tx_output_list.toOwnedSlice() catch unreachable;
 }
 
 ///create a new Transaction by moving value from one address to another
@@ -236,7 +238,7 @@ fn findSpendableOutputs(self: BlockChain, pub_key_hash: Wallets.PublicKeyHash, a
     spendables: for (unspentTxs) |tx| {
         //When the accumulated value is more or equals to the amount we want to transfer, it stops and returns the
         //accumulated value and output indices grouped by transaction IDs. We don’t want to take more than we’re going to spend.
-        for (tx.tx_out.items) |output, out_index| {
+        for (tx.tx_out.items, 0..) |output, out_index| {
             if (output.isLockedWithKey(pub_key_hash) and accumulated_amount < amount) {
                 accumulated_amount += output.value;
                 unspent_output.putNoClobber(tx.id, out_index) catch unreachable;
@@ -318,7 +320,7 @@ pub fn sendValue(self: *BlockChain, amount: usize, from: Wallets.Address, to: Wa
         std.log.err("recipient address {s} is invalid", .{to});
         std.process.exit(4);
     }
-    var new_transaction = self.newUTx(amount, from, to);
+    const new_transaction = self.newUTx(amount, from, to);
 
     self.mineBlock(&.{new_transaction});
 }
