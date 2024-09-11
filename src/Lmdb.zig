@@ -4,11 +4,7 @@ txn_type: TxnType,
 db_handle: DbHandle = undefined,
 
 const std = @import("std");
-const mdb = struct {
-    usingnamespace @cImport({
-        @cInclude("lmdb.h");
-    });
-};
+const mdb = @import("mdb");
 const panic = std.debug.panic;
 const assert = std.debug.assert;
 const info = std.log.info;

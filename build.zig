@@ -61,8 +61,13 @@ pub fn build(b: *std.Build) void {
     });
     const s2s_module = s2s_dep.module("s2s");
     exe.root_module.addImport("s2s", s2s_module);
+    const translate_lmdb = b.addTranslateC(.{
+        .root_source_file = b.path(LMDB_PATH ++ "lmdb.h"),
+        .target = target,
+        .optimize = optimize,
+    });
+    exe.root_module.addImport("mdb", translate_lmdb.createModule());
     exe.linkLibrary(lmdb);
-    exe.addIncludePath(b.path(LMDB_PATH));
     b.installArtifact(exe);
 
     switch (optimize) {
