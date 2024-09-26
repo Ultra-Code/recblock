@@ -73,6 +73,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/main.zig"),
     });
     exe_tests.root_module.addImport("s2s", s2s_module);
+    exe_tests.root_module.addImport("mdb", lmdb_module);
     exe_tests.linkLibrary(liblmdb);
 
     const test_step = b.step("test", "Run unit tests");
