@@ -6,6 +6,10 @@
             .url = "https://github.com/Ultra-Code/s2s/archive/457545e66247ce58046f24f0dab8d05440acfa3e.tar.gz",
             .hash = "12203e7085165c465f27125a20e8b1cec91306baf875eb0887a520a66dea0a2f2a3d",
         },
+        .lmdb = .{
+            .url = "https://github.com/Ultra-Code/lmdb/archive/b3869d6d9bd9027bf6c5205ccbedcdc14eeed911.tar.gz",
+            .hash = "1220c27c83d4122c7a16976142568289563ce94f9e0e25492daa493b0a85fe2387bc",
+        },
     },
     .paths = .{""},
 }
