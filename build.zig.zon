@@ -7,8 +7,8 @@
             .hash = "12203e7085165c465f27125a20e8b1cec91306baf875eb0887a520a66dea0a2f2a3d",
         },
         .lmdb = .{
-            .url = "https://github.com/Ultra-Code/lmdb/archive/b3869d6d9bd9027bf6c5205ccbedcdc14eeed911.tar.gz",
-            .hash = "1220c27c83d4122c7a16976142568289563ce94f9e0e25492daa493b0a85fe2387bc",
+            .url = "https://github.com/Ultra-Code/lmdb/archive/refs/tags/0.9.31.tar.gz",
+            .hash = "12201378255495fe14108ee71d9214960146cc0e27bc62dbfc8f6c16bd38b7b61e78",
         },
     },
     .paths = .{""},
