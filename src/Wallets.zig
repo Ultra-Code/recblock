@@ -117,7 +117,7 @@ pub const Wallet = struct {
 
     ///use to initialize `Wallet` ie. the public and private keys
     pub fn initWallet() Wallet {
-        return .{ .wallet_keys = Ed25519.KeyPair.create(null) catch unreachable };
+        return .{ .wallet_keys = Ed25519.KeyPair.generate() };
     }
 
     pub fn address(self: Wallet) Address {

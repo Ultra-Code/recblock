@@ -1,15 +1,23 @@
 .{
-    .name = "recblock",
+    .name = .recblock,
     .version = "0.1.0",
+    .fingerprint = 0x9980370ddd3fc3f1,
+    .minimum_zig_version = "0.15.0-dev.151+6e8493daa",
     .dependencies = .{
         .s2s = .{
-            .url = "https://github.com/Ultra-Code/s2s/archive/457545e66247ce58046f24f0dab8d05440acfa3e.tar.gz",
-            .hash = "12203e7085165c465f27125a20e8b1cec91306baf875eb0887a520a66dea0a2f2a3d",
+            .url = "https://github.com/Ultra-Code/s2s/archive/76d7aea86c1d05afaddab9a1081b6dad68088756.tar.gz",
+            .hash = "s2s-0.0.1-qt8ajW97AADgZZjymAzXPnLV3sR2Fo0r4k7WGJkfftJ1",
         },
         .lmdb = .{
-            .url = "https://github.com/Ultra-Code/lmdb/archive/refs/tags/0.9.31.tar.gz",
-            .hash = "12201378255495fe14108ee71d9214960146cc0e27bc62dbfc8f6c16bd38b7b61e78",
+            .url = "https://github.com/allyourcodebase/lmdb/archive/refs/tags/0.9.31+2.tar.gz",
+            .hash = "lmdb-0.9.31+2-ymBDR9M3AAAuqe96eqjOxou621_bZndPtxiOGnpDSg9Z",
         },
     },
-    .paths = .{""},
+    .paths = .{
+        "src",
+        "build.zig",
+        "build.zig.zon",
+        "LICENSE",
+        "README.md",
+    },
 }
