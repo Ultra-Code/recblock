@@ -8,9 +8,10 @@ pub fn build(b: *std.Build) void {
 
     const strip = b.option(bool, "strip", "Strip debug information") orelse false;
     const lto = b.option(bool, "lto", "Enable link time optimization") orelse false;
+    const no_bin = b.option(bool, "no-bin", "skip emitting binary for incremental compilation checks") orelse false;
 
     //Add lmdb library for embeded key/value store
-    const lmdb = b.dependency("lmdb", .{
+    const lmdb_dep = b.dependency("lmdb", .{
         .target = target,
         .optimize = optimize,
     });
@@ -38,12 +39,12 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    const s2s_module = s2s_dep.module("s2s");
-    const liblmdb = lmdb.artifact("lmdb");
-    const lmdb_module = lmdb.module("lmdb");
+    const s2s = s2s_dep.module("s2s");
+    const liblmdb = lmdb_dep.artifact("lmdb");
+    const lmdb = lmdb_dep.module("lmdb");
 
-    exe.root_module.addImport("s2s", s2s_module);
-    exe.root_module.addImport("mdb", lmdb_module);
+    exe.root_module.addImport("s2s", s2s);
+    exe.root_module.addImport("mdb", lmdb);
     exe.linkLibrary(liblmdb);
     b.installArtifact(exe);
 
@@ -53,12 +54,22 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    check.root_module.addImport("s2s", s2s_module);
-    check.root_module.addImport("mdb", lmdb_module);
+    check.root_module.addImport("s2s", s2s);
+    check.root_module.addImport("mdb", lmdb);
     check.linkLibrary(liblmdb);
 
+    // zls with build_on_save_args = ["check", "--watch", "-fincremental"]
+    // for ultra fast zig error reporting using incremental compilation
     const check_step = b.step("check", "Zls: Check if recblock compiles");
     check_step.dependOn(&check.step);
+
+    // For use with incremental compilation checks
+    // zig build -Dno-bin -fincremental --watch
+    if (no_bin) {
+        b.getInstallStep().dependOn(&exe.step);
+    } else {
+        b.installArtifact(exe);
+    }
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
@@ -72,8 +83,8 @@ pub fn build(b: *std.Build) void {
     const exe_tests = b.addTest(.{
         .root_source_file = b.path("src/main.zig"),
     });
-    exe_tests.root_module.addImport("s2s", s2s_module);
-    exe_tests.root_module.addImport("mdb", lmdb_module);
+    exe_tests.root_module.addImport("s2s", s2s);
+    exe_tests.root_module.addImport("mdb", lmdb);
     exe_tests.linkLibrary(liblmdb);
 
     const test_step = b.step("test", "Run unit tests");
